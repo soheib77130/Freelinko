@@ -36,7 +36,6 @@ const deadlineCountdown = document.getElementById("deadlineCountdown");
 const fileZone = document.getElementById("fileZone");
 const fileInput = document.getElementById("fileInput");
 const fileList = document.getElementById("fileList");
-const deliverBtn = document.getElementById("deliverBtn");
 const chatList = document.getElementById("chatList");
 const chatTitle = document.getElementById("chatTitle");
 const chatStatusText = document.getElementById("chatStatusText");
@@ -49,7 +48,6 @@ const sendBtn = document.getElementById("sendBtn");
 const negoBar = document.getElementById("negoBar");
 const priceInput = document.getElementById("priceInput");
 const proposePriceBtn = document.getElementById("proposePriceBtn");
-const acceptPriceBtn = document.getElementById("acceptPriceBtn");
 const notifPopup = document.getElementById("notifPopup");
 const notifDetails = document.getElementById("notifDetails");
 const notifTimerBar = document.getElementById("notifTimer");
@@ -476,7 +474,6 @@ async function openMissionDetail(requestId) {
     '<div class="detail-row"><span class="dl">Livr\u00e9</span><span class="dd">' + (req.delivered ? "Oui" : "Non") + '</span></div>';
   updateDeadline(req);
   await loadDeliverables(requestId);
-  if (deliverBtn) deliverBtn.style.display = (["paye", "en_cours"].indexOf(req.status) !== -1) ? "block" : "none";
 }
 
 function updateDeadline(req) {
@@ -528,19 +525,6 @@ async function loadDeliverables(requestId) {
   }).join("");
 }
 
-if (deliverBtn) {
-  deliverBtn.addEventListener("click", async function() {
-    if (!currentRequest) return;
-    await sb.from("requests").update({ delivered: true, delivered_at: new Date().toISOString(), status: "livre" }).eq("id", currentRequest.id);
-    await sb.from("request_messages").insert({
-      request_id: currentRequest.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
-      body: "L'ind\u00e9pendant a livr\u00e9 les fichiers."
-    });
-    alert("Mission marqu\u00e9e comme livr\u00e9e !");
-    await refreshAll();
-    openMissionDetail(currentRequest.id);
-  });
-}
 
 // ---- CONVERSATION ----
 async function openConversation(requestId) {
@@ -571,10 +555,21 @@ async function openConversation(requestId) {
   }
 
   var actionsHtml = "";
-  if (["termine", "livre"].indexOf(req.status) !== -1) actionsHtml = '<button class="btn sm" id="rateClientBtn">Noter le client</button>';
+  if (["termine", "livre"].indexOf(req.status) !== -1) actionsHtml = '<button class="btn sm" id="rateClientBtn" style="display:none">Noter le client</button>';
   if (chatHeaderActions) chatHeaderActions.innerHTML = actionsHtml;
   var rateBtn = document.getElementById("rateClientBtn");
   if (rateBtn) rateBtn.addEventListener("click", openRatingModal);
+
+  // Check if already rated
+  if (["termine", "livre"].indexOf(req.status) !== -1 && rateBtn) {
+    var ratingCheck = await sb.from("ratings")
+      .select("id").eq("request_id", req.id).eq("rater_user_id", currentUserId).maybeSingle();
+    if (ratingCheck.data) {
+      rateBtn.textContent = "Déjà noté";
+      rateBtn.disabled = true;
+    }
+    rateBtn.style.display = "inline-flex";
+  }
 
   await loadMessages();
   subscribeMessages(requestId);
@@ -627,25 +622,6 @@ if (proposePriceBtn) {
   });
 }
 
-if (acceptPriceBtn) {
-  acceptPriceBtn.addEventListener("click", async function() {
-    if (!currentRequest) return;
-    var price = currentRequest.negotiated_price || (priceInput ? priceInput.value : null);
-    if (!price) { alert("Aucun prix d\u00e9fini."); return; }
-    await sb.from("requests").update({ status: "confirme", negotiated_price: Number(price) }).eq("id", currentRequest.id);
-    await sb.from("request_messages").insert({
-      request_id: currentRequest.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
-      body: "Prix accept\u00e9 : " + price + " \u20ac. En attente du paiement."
-    });
-    await sb.from("request_messages").insert({
-      request_id: currentRequest.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
-      body: "Mission confirm\u00e9e \u00e0 " + price + " \u20ac. Le chat passe en fil de messages."
-    });
-    if (negoBar) negoBar.style.display = "none";
-    await refreshAll();
-    await openConversation(currentRequest.id);
-  });
-}
 
 // ---- REALTIME ----
 function setupRealtime() {

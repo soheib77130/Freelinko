@@ -166,17 +166,42 @@ async function openConversation(requestId) {
 
   // Actions
   let actionsHtml = "";
+  // Cancel button: available before mission is in progress
+  if (["nouveau", "en_attente", "match_en_cours", "negociation", "confirme"].includes(req.status)) {
+    actionsHtml += `<button class="btn sm danger" id="cancelMissionBtn">Annuler la mission</button>`;
+  }
   if (req.status === "negociation") {
     actionsHtml += `<button class="btn sm primary" id="acceptProposalBtn">Accepter l'offre</button>`;
     actionsHtml += `<button class="btn sm danger" id="declineProposalBtn">Refuser l'offre</button>`;
   }
+  // Validate delivery button: client validates when mission is en_cours
+  if (req.status === "en_cours") {
+    actionsHtml += `<button class="btn sm primary" id="validateDeliveryBtn">Valider la livraison</button>`;
+  }
+  // Rating button: check if already rated
   if (["termine", "livre"].includes(req.status)) {
-    actionsHtml += `<button class="btn sm" id="rateBtn">Noter</button>`;
+    actionsHtml += `<button class="btn sm" id="rateBtn" style="display:none">Noter</button>`;
   }
   chatActions.innerHTML = actionsHtml;
+  document.getElementById("cancelMissionBtn")?.addEventListener("click", cancelMission);
   document.getElementById("acceptProposalBtn")?.addEventListener("click", acceptProposal);
   document.getElementById("declineProposalBtn")?.addEventListener("click", declineProposal);
+  document.getElementById("validateDeliveryBtn")?.addEventListener("click", validateDelivery);
   document.getElementById("rateBtn")?.addEventListener("click", () => openRatingModal());
+
+  // Check if already rated before showing rate button
+  if (["termine", "livre"].includes(req.status)) {
+    const { data: existingRating } = await sb.from("ratings")
+      .select("id").eq("request_id", req.id).eq("rater_user_id", currentUserId).maybeSingle();
+    const rateBtn = document.getElementById("rateBtn");
+    if (rateBtn) {
+      if (existingRating) {
+        rateBtn.textContent = "Déjà noté";
+        rateBtn.disabled = true;
+      }
+      rateBtn.style.display = "inline-flex";
+    }
+  }
 
   if (req.status === "negociation") {
     const displayedPrice = req.negotiated_price || req.budget || "à définir";
@@ -303,6 +328,60 @@ async function declineProposal() {
   if (chatStatus) chatStatus.textContent = "En attente";
 }
 
+// ---- CANCEL MISSION ----
+async function cancelMission() {
+  if (!currentRequest) return;
+  const ok = window.confirm("Annuler cette mission ? Cette action est irréversible.");
+  if (!ok) return;
+  const { error } = await sb.from("requests").update({
+    status: "annule",
+    assigned_indep_user_id: null,
+    match_summary: "Mission annulée par le client."
+  }).eq("id", currentRequest.id).eq("client_user_id", currentUserId);
+  if (error) {
+    alert("Impossible d'annuler la mission pour le moment.");
+    return;
+  }
+  await sb.from("request_messages").insert({
+    request_id: currentRequest.id,
+    sender_user_id: currentUserId,
+    sender_role: "system",
+    channel: "fil",
+    body: "La mission a été annulée par le client."
+  }).catch(() => {});
+  alert("Mission annulée.");
+  await refreshAll();
+  chatMessages.innerHTML = '<div class="hint" style="text-align:center;margin:auto">Mission annulée.</div>';
+  if (chatInputArea) chatInputArea.style.display = "none";
+  if (chatActions) chatActions.innerHTML = "";
+}
+
+// ---- VALIDATE DELIVERY ----
+async function validateDelivery() {
+  if (!currentRequest) return;
+  const ok = window.confirm("Valider la livraison ? La mission sera marquée comme livrée.");
+  if (!ok) return;
+  const { error } = await sb.from("requests").update({
+    status: "livre",
+    delivered: true,
+    delivered_at: new Date().toISOString()
+  }).eq("id", currentRequest.id).eq("client_user_id", currentUserId);
+  if (error) {
+    alert("Impossible de valider la livraison pour le moment.");
+    return;
+  }
+  await sb.from("request_messages").insert({
+    request_id: currentRequest.id,
+    sender_user_id: currentUserId,
+    sender_role: "system",
+    channel: "fil",
+    body: "Le client a validé la livraison. Mission terminée ✅"
+  }).catch(() => {});
+  alert("Livraison validée !");
+  await refreshAll();
+  await openConversation(currentRequest.id);
+}
+
 // ---- REALTIME ----
 function setupRealtime() {
   sb.channel("client-requests-" + currentUserId)
@@ -384,7 +463,7 @@ skipRating?.addEventListener("click", () => ratingModal.classList.remove("show")
 
 submitRating?.addEventListener("click", async () => {
   if (!currentRequest || selectedRating === 0) { alert("Choisissez une note."); return; }
-  await sb.from("ratings").insert({
+  const { error: ratingError } = await sb.from("ratings").insert({
     request_id: currentRequest.id,
     rater_user_id: currentUserId,
     rated_user_id: currentRequest.assigned_indep_user_id,
@@ -392,9 +471,27 @@ submitRating?.addEventListener("click", async () => {
     score: selectedRating,
     comment: ratingComment.value.trim() || null
   });
+  if (ratingError) {
+    if (ratingError.message && ratingError.message.includes("unique")) {
+      alert("Vous avez déjà noté cette mission.");
+    } else {
+      alert("Erreur lors de l'envoi de la note.");
+    }
+    ratingModal.classList.remove("show");
+    return;
+  }
   ratingModal.classList.remove("show");
   alert("Merci pour votre évaluation !");
+  // Check if both parties have rated -> close mission
+  const { data: allRatings } = await sb.from("ratings")
+    .select("rater_role").eq("request_id", currentRequest.id);
+  const roles = (allRatings || []).map(r => r.rater_role);
+  if (roles.includes("client") && roles.includes("independant")) {
+    await sb.from("requests").update({ status: "termine" }).eq("id", currentRequest.id);
+  }
   await loadRating();
+  await refreshAll();
+  if (currentRequest) await openConversation(currentRequest.id);
 });
 
 // ---- MATCHING ----

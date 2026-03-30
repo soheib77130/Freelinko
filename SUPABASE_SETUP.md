@@ -1,4 +1,4 @@
-# Configuration Supabase — Serviko
+# Configuration Supabase — Freelinko
 
 Ce guide prépare une authentification fonctionnelle pour **clients** et **indépendants**.
 

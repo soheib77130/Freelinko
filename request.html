@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Serviko — Déposer une demande</title>
-  <meta name="description" content="Déposer une demande de service sur Serviko." />
+  <title>Freelinko — Déposer une demande</title>
+  <meta name="description" content="Déposer une demande de service sur Freelinko." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
@@ -132,7 +132,7 @@
     <header class="nav">
       <a class="brand" href="index.html">
         <div class="logo">S</div>
-        <div>Serviko</div>
+        <div>Freelinko</div>
       </a>
       <a class="btn" href="dashboard.html">Mon espace client</a>
     </header>
@@ -174,7 +174,7 @@
             </select>
           </div>
           <div class="budgetBox" aria-live="polite">
-            <div class="budgetRow"><span>Commission Serviko (2%)</span><strong id="feeAmount">€0</strong></div>
+            <div class="budgetRow"><span>Commission Freelinko (2%)</span><strong id="feeAmount">€0</strong></div>
             <div class="budgetRow"><span>Budget total estimé</span><strong id="totalAmount">€0</strong></div>
           </div>
           <div class="formRow">
@@ -277,7 +277,7 @@
     const stepProgressFill = document.getElementById("stepProgressFill");
     const saveDraftButton = document.getElementById("saveDraft");
     const draftStatus = document.getElementById("draftStatus");
-    const draftKey = "serviko-request-draft";
+    const draftKey = "freelinko-request-draft";
     let currentStep = 0;
 
     const checklistByCategory = {

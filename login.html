@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Serviko — Connexion client</title>
-  <meta name="description" content="Connexion client Serviko." />
+  <title>Freelinko — Connexion client</title>
+  <meta name="description" content="Connexion client Freelinko." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
@@ -120,7 +120,7 @@
     <header class="nav">
       <a class="brand" href="index.html">
         <div class="logo">S</div>
-        <div>Serviko</div>
+        <div>Freelinko</div>
       </a>
       <a class="btn" href="index.html#client">Retour à l'espace client</a>
     </header>
@@ -168,7 +168,7 @@
       if (!supabaseClient) return;
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (session?.user){
-        if (window.localStorage.getItem("serviko-request-draft")){
+        if (window.localStorage.getItem("freelinko-request-draft")){
           window.location.href = "request.html";
           return;
         }
@@ -209,7 +209,7 @@
               return;
             }
             alert("Connexion réussie.");
-            if (window.localStorage.getItem("serviko-request-draft")){
+            if (window.localStorage.getItem("freelinko-request-draft")){
               window.location.href = "request.html";
               return;
             }
