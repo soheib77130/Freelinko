@@ -36,6 +36,7 @@ const deadlineCountdown = document.getElementById("deadlineCountdown");
 const fileZone = document.getElementById("fileZone");
 const fileInput = document.getElementById("fileInput");
 const fileList = document.getElementById("fileList");
+const deliverBtn = document.getElementById("deliverBtn");
 const chatList = document.getElementById("chatList");
 const chatTitle = document.getElementById("chatTitle");
 const chatStatusText = document.getElementById("chatStatusText");
@@ -72,7 +73,6 @@ let availableRequestMap = {};
 
 async function ensureIndepProfile(user, forceRefresh) {
   if (!sb) return null;
-
   var resolvedUser = user || null;
   if (!resolvedUser) {
     var authUserResult = await sb.auth.getUser();
@@ -94,16 +94,10 @@ async function ensureIndepProfile(user, forceRefresh) {
   var fallbackProfile = {
     firstname: meta.firstname || "",
     lastname: meta.lastname || "",
-    city: "",
-    experience: "",
-    skills: "",
-    daily_rate: null,
-    status: "hors_ligne",
-    siret: "",
-    phone: ""
+    city: "", experience: "", skills: "",
+    daily_rate: null, status: "hors_ligne", siret: "", phone: ""
   };
 
-  // Tentative de création non bloquante : on continue même si RLS la refuse.
   var createResult = await sb.from("independants").upsert({
     user_id: resolvedUser.id,
     firstname: fallbackProfile.firstname,
@@ -113,7 +107,7 @@ async function ensureIndepProfile(user, forceRefresh) {
   }, { onConflict: "user_id" });
 
   if (createResult.error) {
-    console.warn("Profil indépendant absent (création automatique refusée):", createResult.error.message);
+    console.warn("Profil indépendant absent:", createResult.error.message);
     currentIndep = fallbackProfile;
     return currentIndep;
   }
@@ -131,9 +125,9 @@ async function init() {
   if (!sb) return;
   const { data: { session } } = await sb.auth.getSession();
   const user = session?.user;
-  if (!user) { window.location.href = "indep-login.html"; return; }
+  if (!user) { window.location.href = "connexion.html"; return; }
   if (user.user_metadata?.role && user.user_metadata.role !== "independant") {
-    await sb.auth.signOut(); window.location.href = "indep-login.html"; return;
+    await sb.auth.signOut(); window.location.href = "connexion.html"; return;
   }
   currentUserId = user.id;
   const data = await ensureIndepProfile(user);
@@ -144,7 +138,7 @@ async function init() {
   if (profileExp) profileExp.textContent = data?.experience || "—";
   if (profileSkills) profileSkills.textContent = data?.skills || "—";
   if (profileSiret) profileSiret.textContent = data?.siret || "—";
-  if (kpiRate) kpiRate.textContent = data?.daily_rate ? data.daily_rate + " \u20ac/j" : "—";
+  if (kpiRate) kpiRate.textContent = data?.daily_rate ? data.daily_rate + " €/j" : "—";
 
   var stored = localStorage.getItem("indep-category");
   if (stored && categorySelect) categorySelect.value = stored;
@@ -186,7 +180,7 @@ function updateStatusUI() {
     toggleOnline.className = isOnline ? "btn danger" : "btn primary";
     toggleOnline.style.flex = "1";
   }
-  if (availFeedback) availFeedback.textContent = isOnline ? "Vous recevez les demandes en temps r\u00e9el." : "Passez en ligne pour recevoir des demandes.";
+  if (availFeedback) availFeedback.textContent = isOnline ? "Vous recevez les demandes en temps réel." : "Passez en ligne pour recevoir des demandes.";
 }
 
 async function updateStatus(status) {
@@ -196,7 +190,7 @@ async function updateStatus(status) {
 
 if (toggleOnline) {
   toggleOnline.addEventListener("click", async function() {
-    if (!categorySelect.value && !isOnline) { alert("Choisissez une cat\u00e9gorie."); return; }
+    if (!categorySelect.value && !isOnline) { alert("Choisissez une catégorie."); return; }
     if (categorySelect.value) localStorage.setItem("indep-category", categorySelect.value);
     var next = isOnline ? "hors_ligne" : "en_ligne";
     await updateStatus(next);
@@ -208,12 +202,11 @@ if (toggleOnline) {
 
 if (searchBtn) {
   searchBtn.addEventListener("click", async function() {
-    if (!categorySelect.value) { alert("Choisissez une cat\u00e9gorie."); return; }
+    if (!categorySelect.value) { alert("Choisissez une catégorie."); return; }
     localStorage.setItem("indep-category", categorySelect.value);
     if (availFeedback) availFeedback.textContent = "Recherche en cours...";
-    await runMatching();
-    await refreshAll();
-    if (availFeedback) availFeedback.textContent = "Recherche termin\u00e9e.";
+    await loadAvailableRequests();
+    if (availFeedback) availFeedback.textContent = "Recherche terminée.";
   });
 }
 
@@ -228,13 +221,13 @@ async function refreshAll() {
 async function loadKPIs() {
   var result = await sb.from("requests")
     .select("id,status,negotiated_price").eq("assigned_indep_user_id", currentUserId)
-    .in("status", ["paye", "en_cours", "termine", "livre", "confirme", "negociation"]);
+    .in("status", ["en_cours", "termine", "verification", "negociation"]);
   var data = result.data || [];
-  var active = data.filter(function(r) { return ["paye", "en_cours", "negociation", "confirme"].indexOf(r.status) !== -1; });
+  var active = data.filter(function(r) { return ["en_cours", "negociation"].indexOf(r.status) !== -1; });
   if (kpiMissions) kpiMissions.textContent = active.length;
-  var rev = data.filter(function(r) { return ["paye", "en_cours", "termine", "livre"].indexOf(r.status) !== -1; })
+  var rev = data.filter(function(r) { return ["en_cours", "termine", "verification"].indexOf(r.status) !== -1; })
     .reduce(function(s, r) { return s + Number(r.negotiated_price || 0); }, 0);
-  if (kpiRevenue) kpiRevenue.textContent = rev + " \u20ac";
+  if (kpiRevenue) kpiRevenue.textContent = rev + " €";
 }
 
 async function loadUserRating() {
@@ -246,13 +239,15 @@ async function loadUserRating() {
 }
 
 function formatStatus(s) {
-  var m = { nouveau: "Nouveau", en_attente: "En attente", match_en_cours: "Match en cours", negociation: "N\u00e9gociation", confirme: "Confirm\u00e9", paye: "Pay\u00e9", en_cours: "En cours", termine: "Termin\u00e9", livre: "Livr\u00e9" };
+  var m = { nouveau: "Nouveau", en_attente: "En attente", negociation: "Négociation", en_cours: "En cours", verification: "Vérification", termine: "Terminé", annule: "Annulé" };
   return m[s] || s || "Nouveau";
 }
 function statusPillClass(s) {
-  if (["confirme", "paye", "en_cours"].indexOf(s) !== -1) return "green";
-  if (["negociation", "match_en_cours"].indexOf(s) !== -1) return "yellow";
-  if (["termine", "livre"].indexOf(s) !== -1) return "green";
+  if (s === "en_cours") return "green";
+  if (s === "negociation") return "yellow";
+  if (s === "verification") return "yellow";
+  if (s === "termine") return "green";
+  if (s === "annule") return "red";
   return "";
 }
 
@@ -268,7 +263,7 @@ async function loadMissions() {
     return;
   }
   if (missionList) missionList.innerHTML = data.map(function(r) {
-    return '<li class="req-item" data-mission="' + r.id + '"><div><div class="title">' + r.title + '</div><div class="meta">' + (r.category || "") + ' \u00b7 ' + (r.negotiated_price || r.budget || "?") + ' \u20ac</div></div><span class="pill ' + statusPillClass(r.status) + '">' + formatStatus(r.status) + '</span></li>';
+    return '<li class="req-item" data-mission="' + r.id + '"><div><div class="title">' + r.title + '</div><div class="meta">' + (r.category || "") + ' · ' + (r.negotiated_price || r.budget || "?") + ' €</div></div><span class="pill ' + statusPillClass(r.status) + '">' + formatStatus(r.status) + '</span></li>';
   }).join("");
   if (chatList) chatList.innerHTML = data.map(function(r) {
     return '<li class="req-item" data-chat="' + r.id + '"><div class="title">' + r.title + '</div><span class="pill ' + statusPillClass(r.status) + '" style="font-size:10px">' + formatStatus(r.status) + '</span></li>';
@@ -289,22 +284,19 @@ async function loadAvailableRequests() {
     var result = await sb.from("requests")
       .select("id,title,category,budget,skills,status,deadline,description,created_at")
       .is("assigned_indep_user_id", null)
-      .in("status", ["en_attente", "match_en_cours", "nouveau"])
+      .in("status", ["en_attente", "nouveau"])
       .order("created_at", { ascending: false }).limit(15);
     var data = result.data;
     if (result.error || !data || data.length === 0) {
       availableRequests.innerHTML = '<li class="hint">Aucune demande disponible pour le moment.</li>';
       return;
     }
-    // Filter by category if selected
     var cat = categorySelect ? categorySelect.value : "";
     var filtered = cat ? data.filter(function(r) { return r.category && r.category.trim() === cat; }) : data;
     if (filtered.length === 0) {
-      availableRequests.innerHTML = '<li class="hint">Aucune demande pour la cat\u00e9gorie "' + cat + '". <span style="color:var(--accent2);cursor:pointer" id="showAllBtn">Voir toutes</span></li>';
+      availableRequests.innerHTML = '<li class="hint">Aucune demande pour la catégorie "' + cat + '". <span style="color:var(--accent2);cursor:pointer" id="showAllBtn">Voir toutes</span></li>';
       var showAll = document.getElementById("showAllBtn");
-      if (showAll) showAll.addEventListener("click", function() {
-        renderAvailableList(data);
-      });
+      if (showAll) showAll.addEventListener("click", function() { renderAvailableList(data); });
       return;
     }
     renderAvailableList(filtered);
@@ -316,18 +308,15 @@ async function loadAvailableRequests() {
 function renderAvailableList(items) {
   if (!availableRequests) return;
   availableRequestMap = {};
-  items.forEach(function(r) {
-    availableRequestMap[String(r.id)] = r;
-  });
+  items.forEach(function(r) { availableRequestMap[String(r.id)] = r; });
   availableRequests.innerHTML = items.map(function(r) {
     var date = new Date(r.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
     return '<li class="req-item" style="flex-wrap:wrap">' +
       '<div style="flex:1"><div class="title">' + r.title + '</div>' +
-      '<div class="meta">' + (r.category || "") + ' \u00b7 ' + (r.budget ? r.budget + ' \u20ac' : 'Budget \u00e0 d\u00e9finir') + ' \u00b7 ' + date + '</div>' +
+      '<div class="meta">' + (r.category || "") + ' · ' + (r.budget ? r.budget + ' €' : 'Budget à définir') + ' · ' + date + '</div>' +
       '<div class="meta">' + (r.skills || '') + '</div></div>' +
       '<button class="btn sm primary" data-apply="' + r.id + '" data-budget="' + (r.budget || "") + '">Postuler</button></li>';
   }).join("");
-  // Bind apply buttons
   document.querySelectorAll("[data-apply]").forEach(function(btn) {
     btn.addEventListener("click", function() {
       openApplyModal(btn.dataset.apply, btn.dataset.budget, btn);
@@ -379,7 +368,6 @@ if (confirmApplyBtn) {
 
 async function applyForRequest(requestId, btn, proposedPrice, customMessage) {
   if (!currentUserId) { alert("Session expirée. Merci de vous reconnecter."); return; }
-
   var sessionResult = await sb.auth.getSession();
   var user = sessionResult && sessionResult.data && sessionResult.data.session ? sessionResult.data.session.user : null;
   var profile = await ensureIndepProfile(user, true) || {
@@ -401,44 +389,31 @@ async function applyForRequest(requestId, btn, proposedPrice, customMessage) {
   if (confirmApplyBtn) confirmApplyBtn.disabled = true;
   if (applyStatusText) applyStatusText.textContent = "Envoi de votre candidature...";
   try {
-    // Assign self to this request
     var result = await sb.from("requests").update({
       assigned_indep_user_id: currentUserId,
       status: "negociation",
-      match_score: computeScore({ skills: "", category: "", budget: 0 }, profile),
       match_summary: "Candidature de " + (profile.firstname || "") + " " + (profile.lastname || "") + (customMessage ? " — " + customMessage : ""),
       negotiated_price: proposedPrice
     }).eq("id", requestId).is("assigned_indep_user_id", null).select("id").maybeSingle();
 
     if (result.error || !result.data) {
-      alert("Impossible de postuler. " + (result.error && result.error.message ? result.error.message : "Cette demande a peut-\u00eatre d\u00e9j\u00e0 \u00e9t\u00e9 prise."));
+      alert("Impossible de postuler. " + (result.error && result.error.message ? result.error.message : "Cette demande a peut-être déjà été prise."));
       if (applyStatusText) applyStatusText.textContent = "Échec : candidature non envoyée.";
       return;
     }
 
-    var msgResult = await sb.from("request_messages").insert({
-      request_id: requestId,
-      sender_user_id: currentUserId,
-      sender_role: "independant",
-      channel: "fil",
-      body: customMessage
+    await sb.from("request_messages").insert({
+      request_id: requestId, sender_user_id: currentUserId,
+      sender_role: "independant", channel: "fil", body: customMessage
     });
 
-    if (msgResult.error) {
-      throw new Error("Message non envoyé: " + msgResult.error.message);
-    }
-
-    var systemMsgResult = await sb.from("request_messages").insert({
+    await sb.from("request_messages").insert({
       request_id: requestId, sender_user_id: currentUserId,
       sender_role: "system", channel: "fil",
-      body: (profile.firstname || "Ind\u00e9pendant") + " propose " + proposedPrice + " \u20ac pour cette mission."
+      body: (profile.firstname || "Indépendant") + " propose " + proposedPrice + " € pour cette mission."
     });
 
-    if (systemMsgResult.error) {
-      throw new Error("Message système non envoyé: " + systemMsgResult.error.message);
-    }
-
-    alert("Candidature envoy\u00e9e avec votre prix et votre message.");
+    alert("Candidature envoyée avec votre prix et votre message.");
     if (applyStatusText) applyStatusText.textContent = "Candidature envoyée ✅";
     closeApplyModal();
     await refreshAll();
@@ -466,12 +441,18 @@ async function openMissionDetail(requestId) {
   });
   if (missionDetail) missionDetail.innerHTML =
     '<div class="detail-row"><span class="dl">Titre</span><span class="dd">' + req.title + '</span></div>' +
-    '<div class="detail-row"><span class="dl">Cat\u00e9gorie</span><span class="dd">' + (req.category || "—") + '</span></div>' +
-    '<div class="detail-row"><span class="dl">Budget initial</span><span class="dd">' + (req.budget || "—") + ' \u20ac</span></div>' +
-    '<div class="detail-row"><span class="dl">Prix n\u00e9goci\u00e9</span><span class="dd">' + (req.negotiated_price || "—") + ' \u20ac</span></div>' +
-    '<div class="detail-row"><span class="dl">Comp\u00e9tences</span><span class="dd">' + (req.skills || "—") + '</span></div>' +
+    '<div class="detail-row"><span class="dl">Catégorie</span><span class="dd">' + (req.category || "—") + '</span></div>' +
+    '<div class="detail-row"><span class="dl">Budget initial</span><span class="dd">' + (req.budget || "—") + ' €</span></div>' +
+    '<div class="detail-row"><span class="dl">Prix négocié</span><span class="dd">' + (req.negotiated_price || "—") + ' €</span></div>' +
+    '<div class="detail-row"><span class="dl">Compétences</span><span class="dd">' + (req.skills || "—") + '</span></div>' +
     '<div class="detail-row"><span class="dl">Statut</span><span class="dd"><span class="pill ' + statusPillClass(req.status) + '">' + formatStatus(req.status) + '</span></span></div>' +
-    '<div class="detail-row"><span class="dl">Livr\u00e9</span><span class="dd">' + (req.delivered ? "Oui" : "Non") + '</span></div>';
+    '<div class="detail-row"><span class="dl">Livré</span><span class="dd">' + (req.delivered ? "Oui" : "Non") + '</span></div>';
+
+  // Show deliver button only when mission is en_cours
+  if (deliverBtn) {
+    deliverBtn.style.display = req.status === "en_cours" ? "inline-flex" : "none";
+  }
+
   updateDeadline(req);
   await loadDeliverables(requestId);
 }
@@ -484,7 +465,7 @@ function updateDeadline(req) {
   if (isNaN(target.getTime())) { if (deadlineCountdown) deadlineCountdown.textContent = dl; return; }
   function tick() {
     var diff = target - Date.now();
-    if (diff <= 0) { if (deadlineCountdown) { deadlineCountdown.textContent = "Deadline d\u00e9pass\u00e9e !"; deadlineCountdown.className = "countdown urgent"; } return; }
+    if (diff <= 0) { if (deadlineCountdown) { deadlineCountdown.textContent = "Deadline dépassée !"; deadlineCountdown.className = "countdown urgent"; } return; }
     var d = Math.floor(diff / 86400000);
     var h = Math.floor((diff % 86400000) / 3600000);
     var m = Math.floor((diff % 3600000) / 60000);
@@ -525,6 +506,31 @@ async function loadDeliverables(requestId) {
   }).join("");
 }
 
+// ---- DELIVER (mark as verification) ----
+if (deliverBtn) {
+  deliverBtn.addEventListener("click", async function() {
+    if (!currentRequest) return;
+    var ok = window.confirm("Marquer cette mission comme livrée ? Elle passera en vérification par un administrateur.");
+    if (!ok) return;
+    var result = await sb.from("requests").update({
+      status: "verification",
+      delivered: true,
+      delivered_at: new Date().toISOString()
+    }).eq("id", currentRequest.id).eq("assigned_indep_user_id", currentUserId);
+    if (result.error) {
+      alert("Impossible de marquer comme livré pour le moment.");
+      return;
+    }
+    await sb.from("request_messages").insert({
+      request_id: currentRequest.id, sender_user_id: currentUserId,
+      sender_role: "system", channel: "fil",
+      body: "L'indépendant a livré les fichiers. Mission en vérification par l'administrateur."
+    }).catch(function(){});
+    alert("Mission marquée comme livrée ! Un administrateur va vérifier.");
+    await refreshAll();
+    if (currentRequest) await openMissionDetail(currentRequest.id);
+  });
+}
 
 // ---- CONVERSATION ----
 async function openConversation(requestId) {
@@ -541,27 +547,68 @@ async function openConversation(requestId) {
   if (chatStatusText) chatStatusText.textContent = formatStatus(req.status);
   if (chatInputArea) chatInputArea.style.display = "flex";
 
+  // Nego bar visibility
   if (req.status === "negociation") {
     if (negoBar) negoBar.style.display = "block";
     if (priceInput) priceInput.value = req.negotiated_price || "";
-    if (chatHint) chatHint.textContent = "Chat direct — N\u00e9gociez le prix et les d\u00e9tails.";
+    if (chatHint) chatHint.textContent = "Négociation — Proposez un prix ou acceptez celui du client.";
   } else {
     if (negoBar) negoBar.style.display = "none";
     if (chatHint) {
-      if (["confirme", "paye", "en_cours"].indexOf(req.status) !== -1) chatHint.textContent = "Fil de messages — Mission en cours.";
-      else if (req.status === "livre" || req.status === "termine") chatHint.textContent = "Mission termin\u00e9e.";
+      if (req.status === "en_cours") chatHint.textContent = "Mission en cours.";
+      else if (req.status === "verification") chatHint.textContent = "Mission en vérification par l'admin.";
+      else if (req.status === "termine") chatHint.textContent = "Mission terminée.";
       else chatHint.textContent = "";
     }
   }
 
+  // Header actions
   var actionsHtml = "";
-  if (["termine", "livre"].indexOf(req.status) !== -1) actionsHtml = '<button class="btn sm" id="rateClientBtn" style="display:none">Noter le client</button>';
+  // Cancel before en_cours
+  if (["negociation"].indexOf(req.status) !== -1) {
+    actionsHtml += '<button class="btn sm danger" id="cancelMissionIndepBtn">Annuler</button>';
+    actionsHtml += '<button class="btn sm primary" id="acceptPriceIndepBtn">Accepter le prix (' + (req.negotiated_price || req.budget || "?") + ' €)</button>';
+  }
+  if (["termine"].indexOf(req.status) !== -1) {
+    actionsHtml += '<button class="btn sm" id="rateClientBtn" style="display:none">Noter le client</button>';
+  }
   if (chatHeaderActions) chatHeaderActions.innerHTML = actionsHtml;
+
+  // Bind actions
+  var cancelBtn = document.getElementById("cancelMissionIndepBtn");
+  if (cancelBtn) cancelBtn.addEventListener("click", async function() {
+    var ok = window.confirm("Annuler cette mission ?");
+    if (!ok) return;
+    await sb.from("requests").update({
+      status: "en_attente", assigned_indep_user_id: null, negotiated_price: null,
+      match_summary: "L'indépendant s'est désisté. Mission remise en attente."
+    }).eq("id", req.id);
+    await sb.from("request_messages").insert({
+      request_id: req.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
+      body: "L'indépendant s'est désisté. Mission remise en attente."
+    }).catch(function(){});
+    await refreshAll();
+  });
+
+  var acceptPriceBtn = document.getElementById("acceptPriceIndepBtn");
+  if (acceptPriceBtn) acceptPriceBtn.addEventListener("click", async function() {
+    var price = req.negotiated_price || req.budget || 0;
+    var ok = window.confirm("Accepter le prix de " + price + " € ? La mission passera en cours.");
+    if (!ok) return;
+    var upResult = await sb.from("requests").update({ status: "en_cours" }).eq("id", req.id);
+    if (upResult.error) { alert("Erreur. Réessayez."); return; }
+    await sb.from("request_messages").insert({
+      request_id: req.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
+      body: "L'indépendant a accepté le prix de " + price + " €. Mission en cours ✅"
+    }).catch(function(){});
+    await refreshAll();
+    await openConversation(req.id);
+  });
+
   var rateBtn = document.getElementById("rateClientBtn");
   if (rateBtn) rateBtn.addEventListener("click", openRatingModal);
-
   // Check if already rated
-  if (["termine", "livre"].indexOf(req.status) !== -1 && rateBtn) {
+  if (["termine"].indexOf(req.status) !== -1 && rateBtn) {
     var ratingCheck = await sb.from("ratings")
       .select("id").eq("request_id", req.id).eq("rater_user_id", currentUserId).maybeSingle();
     if (ratingCheck.data) {
@@ -577,7 +624,6 @@ async function openConversation(requestId) {
 
 async function loadMessages() {
   if (!currentRequest) return;
-  var channel = "fil";
   var result = await sb.from("request_messages")
     .select("sender_role,body,created_at").eq("request_id", currentRequest.id)
     .order("created_at", { ascending: true });
@@ -599,29 +645,29 @@ if (msgInput) msgInput.addEventListener("keydown", function(e) { if (e.key === "
 
 async function sendMessage() {
   if (!currentRequest || !msgInput || !msgInput.value.trim()) return;
-  var channel = "fil";
   await sb.from("request_messages").insert({
     request_id: currentRequest.id, sender_user_id: currentUserId,
-    sender_role: "independant", channel: channel, body: msgInput.value.trim()
+    sender_role: "independant", channel: "fil", body: msgInput.value.trim()
   });
   msgInput.value = "";
   await loadMessages();
 }
 
-// Price
+// Price proposal (indep)
 if (proposePriceBtn) {
   proposePriceBtn.addEventListener("click", async function() {
     if (!currentRequest || !priceInput || !priceInput.value) return;
     var price = Number(priceInput.value);
+    if (!price || price <= 0) { alert("Entrez un prix valide."); return; }
     await sb.from("requests").update({ negotiated_price: price }).eq("id", currentRequest.id);
     await sb.from("request_messages").insert({
       request_id: currentRequest.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
-      body: "Nouveau prix propos\u00e9 par l'ind\u00e9pendant : " + price + " \u20ac"
+      body: "Nouveau prix proposé par l'indépendant : " + price + " €"
     });
     await loadMessages();
+    await openConversation(currentRequest.id);
   });
 }
-
 
 // ---- REALTIME ----
 function setupRealtime() {
@@ -675,7 +721,7 @@ function showNotification(notif) {
   if (notifDecline) notifDecline.onclick = async function() {
     await sb.from("notifications").update({ seen: true }).eq("id", notif.id);
     if (notif.request_id) {
-      await sb.from("requests").update({ assigned_indep_user_id: null, status: "en_attente", match_summary: "Ind\u00e9pendant a refus\u00e9. En attente." }).eq("id", notif.request_id);
+      await sb.from("requests").update({ assigned_indep_user_id: null, status: "en_attente", match_summary: "Indépendant a refusé. En attente." }).eq("id", notif.request_id);
     }
     hideNotification();
   };
@@ -685,48 +731,6 @@ function hideNotification() {
   if (notifPopup) notifPopup.classList.remove("show");
   if (notifInterval) clearInterval(notifInterval);
   if (notifTimer) clearTimeout(notifTimer);
-}
-
-// ---- MATCHING ----
-function normalizeSkills(s) {
-  if (!s) return [];
-  return s.toLowerCase().split(",").map(function(x) { return x.trim(); }).filter(Boolean);
-}
-function computeScore(request, indep) {
-  var rSkills = normalizeSkills(request.skills).concat(normalizeSkills(request.category));
-  var iSkills = normalizeSkills(indep.skills);
-  var shared = rSkills.filter(function(s) { return iSkills.indexOf(s) !== -1; });
-  var skillScore = shared.length * 15;
-  var budget = Number(request.budget || 0);
-  var rate = Number(indep.daily_rate || 0);
-  var budgetFit = rate ? Math.max(0, 20 - Math.abs(budget - rate * 5) / 50) : 5;
-  return Math.round(skillScore + budgetFit);
-}
-
-async function runMatching() {
-  if (!currentIndep) return;
-  var cat = categorySelect ? categorySelect.value : "";
-  var result = await sb.from("requests")
-    .select("id,title,category,skills,budget,status")
-    .is("assigned_indep_user_id", null).in("status", ["en_attente", "match_en_cours"]);
-  var requests = result.data;
-  if (!requests || requests.length === 0) { alert("Aucune demande disponible."); return; }
-  var filtered = cat ? requests.filter(function(r) { return r.category && r.category.trim() === cat; }) : requests;
-  if (filtered.length === 0) { alert("Aucune demande pour cette cat\u00e9gorie."); return; }
-  var ranked = filtered.map(function(r) { return { request: r, score: computeScore(r, currentIndep) }; }).sort(function(a, b) { return b.score - a.score; });
-  var best = ranked[0];
-  var price = Number(best.request.budget || 0) || null;
-  await sb.from("requests").update({
-    assigned_indep_user_id: currentUserId, status: "negociation",
-    match_score: best.score, match_summary: "Match: " + best.score + " pts", negotiated_price: price
-  }).eq("id", best.request.id);
-  if (price) {
-    await sb.from("request_messages").insert({
-      request_id: best.request.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
-      body: "Proposition initiale : " + price + " \u20ac (ajustable)."
-    });
-  }
-  alert("Mission assign\u00e9e : " + best.request.title);
 }
 
 // ---- RATING ----
@@ -759,13 +763,30 @@ if (skipRatingBtn) skipRatingBtn.addEventListener("click", function() { if (rati
 if (submitRatingBtn) {
   submitRatingBtn.addEventListener("click", async function() {
     if (!currentRequest || selectedRating === 0) { alert("Choisissez une note."); return; }
-    await sb.from("ratings").insert({
+    var ratingResult = await sb.from("ratings").insert({
       request_id: currentRequest.id, rater_user_id: currentUserId,
       rated_user_id: currentRequest.client_user_id, rater_role: "independant",
       score: selectedRating, comment: (ratingComment ? ratingComment.value.trim() : null) || null
     });
+    if (ratingResult.error) {
+      if (ratingResult.error.message && ratingResult.error.message.indexOf("unique") !== -1) {
+        alert("Vous avez déjà noté cette mission.");
+      } else {
+        alert("Erreur lors de l'envoi de la note.");
+      }
+      if (ratingModal) ratingModal.classList.remove("show");
+      return;
+    }
     if (ratingModal) ratingModal.classList.remove("show");
-    alert("Merci pour votre \u00e9valuation !");
+    alert("Merci pour votre évaluation !");
+    // Check if both parties have rated -> close mission
+    var allRatings = await sb.from("ratings").select("rater_role").eq("request_id", currentRequest.id);
+    var roles = (allRatings.data || []).map(function(r) { return r.rater_role; });
+    if (roles.indexOf("client") !== -1 && roles.indexOf("independant") !== -1) {
+      await sb.from("requests").update({ status: "termine" }).eq("id", currentRequest.id);
+    }
     await loadUserRating();
+    await refreshAll();
+    if (currentRequest) await openConversation(currentRequest.id);
   });
 }

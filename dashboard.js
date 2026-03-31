@@ -25,7 +25,6 @@ const chatActions = document.getElementById("chatActions");
 const chatInputArea = document.getElementById("chatInputArea");
 const msgInput = document.getElementById("msgInput");
 const sendBtn = document.getElementById("sendBtn");
-const relaunchBtn = document.getElementById("relaunchBtn");
 const supportBtn = document.getElementById("supportBtn");
 const paymentModal = document.getElementById("paymentModal");
 const paymentPrice = document.getElementById("paymentPrice");
@@ -42,16 +41,15 @@ async function init() {
   if (!sb) return;
   const { data: { session } } = await sb.auth.getSession();
   const user = session?.user;
-  if (!user) { window.location.href = "login.html"; return; }
+  if (!user) { window.location.href = "connexion.html"; return; }
   if (user.user_metadata?.role && user.user_metadata.role !== "client") {
-    await sb.auth.signOut(); window.location.href = "login.html"; return;
+    await sb.auth.signOut(); window.location.href = "connexion.html"; return;
   }
   currentUserId = user.id;
   const { data: profile } = await sb.from("clients").select("firstname,lastname").eq("user_id", user.id).maybeSingle();
   const name = [profile?.firstname, profile?.lastname].filter(Boolean).join(" ");
   if (welcomeTitle) welcomeTitle.textContent = name ? `Bonjour ${name}` : "Tableau de bord client";
   await refreshAll();
-  await attemptAutoMatch();
   setupRealtime();
 }
 init();
@@ -66,7 +64,6 @@ document.querySelectorAll("[data-logout]").forEach(b => b.addEventListener("clic
 
 // ---- REFRESH ----
 async function refreshAll() {
-  // Run independently so one failure doesn't block others
   await loadRequests().catch(() => {});
   await loadKPIs().catch(() => {});
   await loadRating().catch(() => {});
@@ -76,7 +73,7 @@ async function loadKPIs() {
   try {
     const { data, error } = await sb.from("requests").select("id,status,negotiated_price,budget").eq("client_user_id", currentUserId);
     if (error || !data) return;
-    const active = data.filter(r => !["confirme", "termine", "annule", "livre"].includes(r.status));
+    const active = data.filter(r => !["termine", "annule", "verification"].includes(r.status));
     if (kpiRequests) kpiRequests.textContent = active.length;
     const totalBudget = data.reduce((s, r) => s + Number(r.negotiated_price || r.budget || 0), 0);
     if (kpiBudget) kpiBudget.textContent = totalBudget + " €";
@@ -93,14 +90,16 @@ async function loadRating() {
 }
 
 function formatStatus(s) {
-  const m = { nouveau: "Nouveau", en_attente: "En attente", match_en_cours: "Match en cours", negociation: "Négociation", confirme: "Confirmé", paye: "Payé", en_cours: "En cours", termine: "Terminé", livre: "Livré" };
+  const m = { nouveau: "Nouveau", en_attente: "En attente", negociation: "Négociation", en_cours: "En cours", verification: "Vérification", termine: "Terminé", annule: "Annulé" };
   return m[s] || s || "Nouveau";
 }
 
 function statusPillClass(s) {
-  if (["confirme", "paye", "en_cours"].includes(s)) return "green";
-  if (["negociation", "match_en_cours"].includes(s)) return "yellow";
-  if (["termine", "livre"].includes(s)) return "green";
+  if (s === "en_cours") return "green";
+  if (s === "negociation") return "yellow";
+  if (s === "verification") return "yellow";
+  if (s === "termine") return "green";
+  if (s === "annule") return "red";
   return "";
 }
 
@@ -116,8 +115,8 @@ async function loadRequests() {
     return;
   }
 
-  const active = data.filter(r => !["termine", "livre"].includes(r.status));
-  const done = data.filter(r => ["termine", "livre"].includes(r.status));
+  const active = data.filter(r => !["termine", "annule"].includes(r.status));
+  const done = data.filter(r => ["termine", "annule"].includes(r.status));
 
   if (active.length === 0) {
     requestList.innerHTML = '<li class="hint">Aucune demande en cours.</li>';
@@ -128,11 +127,11 @@ async function loadRequests() {
   if (done.length === 0) {
     completedList.innerHTML = '<li class="hint">Aucune mission terminée.</li>';
   } else {
-    completedList.innerHTML = done.map(r => `<li class="req-item" data-id="${r.id}"><div><div class="title">${r.title}</div></div><span class="pill green">Terminé</span></li>`).join("");
+    completedList.innerHTML = done.map(r => `<li class="req-item" data-id="${r.id}"><div><div class="title">${r.title}</div></div><span class="pill ${statusPillClass(r.status)}">${formatStatus(r.status)}</span></li>`).join("");
   }
 
   // Chat sidebar
-  const withIndep = data.filter(r => r.assigned_indep_user_id || ["negociation", "confirme", "paye", "en_cours"].includes(r.status));
+  const withIndep = data.filter(r => r.assigned_indep_user_id || ["negociation", "en_cours", "verification"].includes(r.status));
   if (withIndep.length === 0) {
     chatList.innerHTML = '<li class="hint">Aucune conversation.</li>';
   } else {
@@ -166,31 +165,40 @@ async function openConversation(requestId) {
 
   // Actions
   let actionsHtml = "";
-  // Cancel button: available before mission is in progress
-  if (["nouveau", "en_attente", "match_en_cours", "negociation", "confirme"].includes(req.status)) {
+
+  // Cancel button: available before mission is en_cours
+  if (["nouveau", "en_attente", "negociation"].includes(req.status)) {
     actionsHtml += `<button class="btn sm danger" id="cancelMissionBtn">Annuler la mission</button>`;
   }
+
+  // Negotiation: show propose price + accept current price
   if (req.status === "negociation") {
-    actionsHtml += `<button class="btn sm primary" id="acceptProposalBtn">Accepter l'offre</button>`;
-    actionsHtml += `<button class="btn sm danger" id="declineProposalBtn">Refuser l'offre</button>`;
+    actionsHtml += `<button class="btn sm primary" id="acceptPriceBtn">Accepter le prix (${req.negotiated_price || req.budget || "?"} €)</button>`;
+    actionsHtml += `<button class="btn sm danger" id="declineProposalBtn">Refuser la candidature</button>`;
   }
-  // Validate delivery button: client validates when mission is en_cours
-  if (req.status === "en_cours") {
-    actionsHtml += `<button class="btn sm primary" id="validateDeliveryBtn">Valider la livraison</button>`;
+
+  // Verification: show status info
+  if (req.status === "verification") {
+    actionsHtml += `<span class="pill yellow">En vérification par l'admin</span>`;
   }
-  // Rating button: check if already rated
-  if (["termine", "livre"].includes(req.status)) {
+
+  // Terminé: show deliverables link + rating
+  if (req.status === "termine") {
+    actionsHtml += `<button class="btn sm primary" id="viewDeliverablesBtn">Voir les livrables</button>`;
     actionsHtml += `<button class="btn sm" id="rateBtn" style="display:none">Noter</button>`;
   }
+
   chatActions.innerHTML = actionsHtml;
+
+  // Bind action buttons
   document.getElementById("cancelMissionBtn")?.addEventListener("click", cancelMission);
-  document.getElementById("acceptProposalBtn")?.addEventListener("click", acceptProposal);
+  document.getElementById("acceptPriceBtn")?.addEventListener("click", acceptPrice);
   document.getElementById("declineProposalBtn")?.addEventListener("click", declineProposal);
-  document.getElementById("validateDeliveryBtn")?.addEventListener("click", validateDelivery);
+  document.getElementById("viewDeliverablesBtn")?.addEventListener("click", viewDeliverables);
   document.getElementById("rateBtn")?.addEventListener("click", () => openRatingModal());
 
   // Check if already rated before showing rate button
-  if (["termine", "livre"].includes(req.status)) {
+  if (req.status === "termine") {
     const { data: existingRating } = await sb.from("ratings")
       .select("id").eq("request_id", req.id).eq("rater_user_id", currentUserId).maybeSingle();
     const rateBtn = document.getElementById("rateBtn");
@@ -203,14 +211,35 @@ async function openConversation(requestId) {
     }
   }
 
+  // Negotiation bar for proposing price
+  let negoBarHtml = "";
+  if (req.status === "negociation") {
+    negoBarHtml = `<div style="display:flex;gap:8px;align-items:center;padding:10px;border-top:1px solid rgba(255,255,255,.06)">
+      <input type="number" id="clientPriceInput" placeholder="Proposer un prix (€)" min="0" value="${req.negotiated_price || ""}" style="max-width:200px;padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(17,24,39,.7);color:var(--text);font-weight:600" />
+      <button class="btn sm primary" id="clientProposePriceBtn">Proposer ce prix</button>
+    </div>`;
+  }
+
+  // Insert nego bar after chat input
+  const existingNegoBar = document.getElementById("clientNegoBar");
+  if (existingNegoBar) existingNegoBar.remove();
+  if (negoBarHtml) {
+    const negoDiv = document.createElement("div");
+    negoDiv.id = "clientNegoBar";
+    negoDiv.innerHTML = negoBarHtml;
+    chatInputArea.parentNode.insertBefore(negoDiv, chatInputArea.nextSibling);
+    document.getElementById("clientProposePriceBtn")?.addEventListener("click", proposePrice);
+  }
+
   if (req.status === "negociation") {
     const displayedPrice = req.negotiated_price || req.budget || "à définir";
-    const details = req.match_summary ? ` ${req.match_summary}` : "";
-    chatHint.textContent = `Chat direct — Proposition actuelle : ${displayedPrice} €. ${details}`.trim();
-  } else if (["confirme", "paye", "en_cours"].includes(req.status)) {
-    chatHint.textContent = "Fil de messages — La mission est en cours.";
-  } else if (["termine", "livre"].includes(req.status)) {
-    chatHint.textContent = "Mission terminée — Pensez à noter l'indépendant !";
+    chatHint.textContent = `Négociation — Prix actuel : ${displayedPrice} €. Proposez un prix ou acceptez celui de l'indépendant.`;
+  } else if (req.status === "en_cours") {
+    chatHint.textContent = "Mission en cours — L'indépendant travaille sur votre demande.";
+  } else if (req.status === "verification") {
+    chatHint.textContent = "L'indépendant a livré. Un administrateur vérifie les livrables.";
+  } else if (req.status === "termine") {
+    chatHint.textContent = "Mission terminée — Vos livrables sont disponibles. Pensez à noter l'indépendant !";
   } else {
     chatHint.textContent = req.match_summary || "En attente d'un indépendant.";
   }
@@ -225,18 +254,7 @@ async function loadMessages() {
     .select("sender_role,body,created_at").eq("request_id", currentRequest.id)
     .order("created_at", { ascending: true });
 
-  const synthetic = [];
-  if (currentRequest.status === "negociation") {
-    const offerPrice = currentRequest.negotiated_price || currentRequest.budget || "à définir";
-    const offerText = currentRequest.match_summary || "Un indépendant a proposé son offre.";
-    synthetic.push({
-      sender_role: "system",
-      body: `Offre en attente: ${offerPrice} €. ${offerText}`,
-      created_at: new Date().toISOString()
-    });
-  }
-
-  const merged = synthetic.concat(msgs || []);
+  const merged = msgs || [];
   if (merged.length === 0) {
     chatMessages.innerHTML = '<div class="hint" style="text-align:center;margin:auto">Aucun message pour le moment.</div>';
     return;
@@ -255,37 +273,51 @@ msgInput?.addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(
 
 async function sendMessage() {
   if (!currentRequest || !msgInput.value.trim()) return;
-  const channel = "fil";
   await sb.from("request_messages").insert({
     request_id: currentRequest.id,
     sender_user_id: currentUserId,
     sender_role: "client",
-    channel,
+    channel: "fil",
     body: msgInput.value.trim()
   });
   msgInput.value = "";
   await loadMessages();
 }
 
-async function acceptProposal() {
+// ---- PROPOSE PRICE (CLIENT) ----
+async function proposePrice() {
   if (!currentRequest) return;
-  const ok = window.confirm("Accepter cette offre ? La mission passera en cours.");
-  if (!ok) return;
-  const price = currentRequest.negotiated_price || currentRequest.budget || 0;
+  const input = document.getElementById("clientPriceInput");
+  if (!input || !input.value) return;
+  const price = Number(input.value);
+  if (!price || price <= 0) { alert("Entrez un prix valide."); return; }
 
-  const { error: upErr } = await sb.from("requests").update({
-    status: "en_cours",
-    paid: true
+  await sb.from("requests").update({ negotiated_price: price }).eq("id", currentRequest.id);
+  await sb.from("request_messages").insert({
+    request_id: currentRequest.id,
+    sender_user_id: currentUserId,
+    sender_role: "system",
+    channel: "fil",
+    body: `Le client propose un nouveau prix : ${price} €`
+  });
+  await loadMessages();
+  await openConversation(currentRequest.id);
+}
+
+// ---- ACCEPT PRICE (CLIENT) ----
+async function acceptPrice() {
+  if (!currentRequest) return;
+  const price = currentRequest.negotiated_price || currentRequest.budget || 0;
+  const ok = window.confirm(`Accepter le prix de ${price} € ? La mission passera en cours.`);
+  if (!ok) return;
+
+  const { error } = await sb.from("requests").update({
+    status: "en_cours"
   }).eq("id", currentRequest.id).eq("client_user_id", currentUserId);
 
-  if (upErr) {
-    const { error: fallbackErr } = await sb.from("requests").update({
-      status: "en_cours"
-    }).eq("id", currentRequest.id).eq("client_user_id", currentUserId);
-    if (fallbackErr) {
-      alert("Impossible d'accepter l'offre pour le moment. Merci de réessayer.");
-      return;
-    }
+  if (error) {
+    alert("Impossible d'accepter le prix pour le moment.");
+    return;
   }
 
   await sb.from("request_messages").insert({
@@ -293,7 +325,7 @@ async function acceptProposal() {
     sender_user_id: currentUserId,
     sender_role: "system",
     channel: "fil",
-    body: `Offre acceptée à ${price} €. La mission passe en cours ✅`
+    body: `Le client a accepté le prix de ${price} €. La mission passe en cours ✅`
   }).catch(() => {});
 
   await refreshAll();
@@ -304,14 +336,14 @@ async function declineProposal() {
   if (!currentRequest) return;
   const ok = window.confirm("Refuser cette candidature ? La mission repassera en attente.");
   if (!ok) return;
-  const { error: declineErr } = await sb.from("requests").update({
+  const { error } = await sb.from("requests").update({
     assigned_indep_user_id: null,
     status: "en_attente",
     negotiated_price: null,
     match_summary: "Candidature refusée par le client. Mission remise en attente."
   }).eq("id", currentRequest.id).eq("client_user_id", currentUserId);
-  if (declineErr) {
-    alert("Impossible de refuser l'offre pour le moment. Merci de réessayer.");
+  if (error) {
+    alert("Impossible de refuser l'offre pour le moment.");
     return;
   }
   await sb.from("request_messages").insert({
@@ -356,30 +388,22 @@ async function cancelMission() {
   if (chatActions) chatActions.innerHTML = "";
 }
 
-// ---- VALIDATE DELIVERY ----
-async function validateDelivery() {
+// ---- VIEW DELIVERABLES ----
+async function viewDeliverables() {
   if (!currentRequest) return;
-  const ok = window.confirm("Valider la livraison ? La mission sera marquée comme livrée.");
-  if (!ok) return;
-  const { error } = await sb.from("requests").update({
-    status: "livre",
-    delivered: true,
-    delivered_at: new Date().toISOString()
-  }).eq("id", currentRequest.id).eq("client_user_id", currentUserId);
-  if (error) {
-    alert("Impossible de valider la livraison pour le moment.");
+  const { data } = await sb.from("deliverables").select("file_name,file_url,file_size,uploaded_at")
+    .eq("request_id", currentRequest.id).order("uploaded_at", { ascending: false });
+  if (!data || data.length === 0) {
+    alert("Aucun livrable trouvé pour cette mission.");
     return;
   }
-  await sb.from("request_messages").insert({
-    request_id: currentRequest.id,
-    sender_user_id: currentUserId,
-    sender_role: "system",
-    channel: "fil",
-    body: "Le client a validé la livraison. Mission terminée ✅"
-  }).catch(() => {});
-  alert("Livraison validée !");
-  await refreshAll();
-  await openConversation(currentRequest.id);
+  let html = '<div style="padding:10px"><h3 style="margin-bottom:12px">Livrables</h3>';
+  data.forEach(f => {
+    const size = f.file_size ? (f.file_size / 1024).toFixed(1) + " Ko" : "";
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);margin-bottom:6px;font-size:13px"><span>${f.file_name}</span><span class="hint">${size}</span></div>`;
+  });
+  html += '</div>';
+  chatMessages.innerHTML = html;
 }
 
 // ---- REALTIME ----
@@ -411,7 +435,6 @@ cancelPayment?.addEventListener("click", () => paymentModal.classList.remove("sh
 confirmPayment?.addEventListener("click", async () => {
   if (!currentRequest) return;
   const price = currentRequest.negotiated_price || currentRequest.budget || 0;
-  // Create payment (silently fails if payments table not yet created)
   await sb.from("payments").insert({
     request_id: currentRequest.id,
     client_user_id: currentUserId,
@@ -420,16 +443,12 @@ confirmPayment?.addEventListener("click", async () => {
     status: "paid",
     paid_at: new Date().toISOString()
   }).catch(() => {});
-  // Update request status (paid column may not exist yet, try with fallback)
-  const { error: upErr } = await sb.from("requests").update({ status: "paye", paid: true }).eq("id", currentRequest.id);
-  if (upErr) await sb.from("requests").update({ status: "paye" }).eq("id", currentRequest.id);
-  // System message
   await sb.from("request_messages").insert({
     request_id: currentRequest.id,
     sender_user_id: currentUserId,
     sender_role: "system",
     channel: "fil",
-    body: `Paiement de ${price} € confirmé. La mission peut commencer !`
+    body: `Paiement de ${price} € confirmé.`
   });
   paymentModal.classList.remove("show");
   await refreshAll();
@@ -492,96 +511,6 @@ submitRating?.addEventListener("click", async () => {
   await loadRating();
   await refreshAll();
   if (currentRequest) await openConversation(currentRequest.id);
-});
-
-// ---- MATCHING ----
-function normalizeSkills(s) {
-  if (!s) return [];
-  return s.toLowerCase().split(",").map(x => x.trim()).filter(Boolean);
-}
-
-function computeScore(request, indep) {
-  const rSkills = normalizeSkills(request.skills).concat(normalizeSkills(request.category));
-  const iSkills = normalizeSkills(indep.skills);
-  const shared = rSkills.filter(s => iSkills.includes(s));
-  const skillScore = shared.length * 15;
-  const expScore = indep.experience?.toLowerCase().includes("senior") ? 12 : 6;
-  const budget = Number(request.budget || 0);
-  const rate = Number(indep.daily_rate || 0);
-  const budgetFit = rate ? Math.max(0, 20 - Math.abs(budget - rate * 5) / 50) : 5;
-  return Math.round(skillScore + expScore + budgetFit);
-}
-
-async function attemptAutoMatch() {
-  try {
-    const { data: pending } = await sb.from("requests")
-      .select("id,title,status,budget,skills,category,assigned_indep_user_id")
-      .eq("client_user_id", currentUserId).in("status", ["en_attente", "match_en_cours"]);
-    if (!pending) return;
-    const unmatched = pending.filter(r => !r.assigned_indep_user_id);
-    for (const req of unmatched) await runMatching(req).catch(() => {});
-    if (unmatched.length > 0) await refreshAll();
-  } catch (_) {}
-}
-
-async function runMatching(request) {
-  const { data: indeps } = await sb.from("independants")
-    .select("user_id,firstname,lastname,skills,daily_rate,status,experience")
-    .in("status", ["en_ligne", "disponible", "online"]);
-  if (!indeps || indeps.length === 0) {
-    await sb.from("requests").update({ status: "en_attente", match_summary: "Aucun indépendant disponible. Votre demande reste en attente." }).eq("id", request.id);
-    return;
-  }
-  const ranked = indeps.map(i => ({ indep: i, score: computeScore(request, i) })).sort((a, b) => b.score - a.score);
-  const top = ranked[0];
-  const price = Number(request.budget || 0) || null;
-  await sb.from("requests").update({
-    assigned_indep_user_id: top.indep.user_id,
-    status: "negociation",
-    match_score: top.score,
-    match_summary: `Match: ${top.indep.firstname || ""} ${top.indep.lastname || ""} (${top.score} pts)`,
-    negotiated_price: price
-  }).eq("id", request.id);
-  // Notify indep (silently fails if notifications table not yet created)
-  await sb.from("notifications").insert({
-    recipient_user_id: top.indep.user_id,
-    request_id: request.id,
-    type: "new_request",
-    title: "Nouvelle mission",
-    body: `${request.title} — ${request.budget ? request.budget + " €" : "Budget à définir"}`,
-    expires_at: new Date(Date.now() + 60000).toISOString()
-  }).catch(() => {});
-  if (price) {
-    await sb.from("request_messages").insert({
-      request_id: request.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
-      body: `Proposition initiale : ${price} € (ajustable avant validation).`
-    });
-  }
-  // Save matches
-  const matchesPayload = ranked.slice(0, 3).map((e, i) => ({
-    request_id: request.id, indep_user_id: e.indep.user_id, score: e.score, rank: i + 1
-  }));
-  await sb.from("request_matches").insert(matchesPayload);
-}
-
-relaunchBtn?.addEventListener("click", async () => {
-  if (!currentUserId) return;
-  relaunchBtn.textContent = "Recherche en cours...";
-  relaunchBtn.disabled = true;
-  try {
-    const { data } = await sb.from("requests")
-      .select("id,title,status,budget,skills,category").eq("client_user_id", currentUserId)
-      .in("status", ["nouveau", "en_attente", "match_en_cours"]).order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (!data) { alert("Aucune demande en attente à relancer."); return; }
-    await runMatching(data);
-    alert("Matching relancé !");
-    await refreshAll();
-  } catch (_) {
-    alert("Erreur lors du matching.");
-  } finally {
-    relaunchBtn.textContent = "Relancer le matching";
-    relaunchBtn.disabled = false;
-  }
 });
 
 supportBtn?.addEventListener("click", () => alert("Support contacté (démo). Réponse sous 24h."));

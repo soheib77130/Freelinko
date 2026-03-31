@@ -143,7 +143,14 @@
   <div class="container">
     <!-- Nav -->
     <header class="nav fade-in">
-      <a class="brand" href="index.html"><div class="logo">S</div><div>Freelinko</div></a>
+      <a class="brand" href="index.html">
+        <svg height="38" viewBox="0 0 260 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="260" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#22c55e"/><stop offset="50%" stop-color="#06b6d4"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient></defs>
+          <path d="M8 22a8 8 0 010-11.3l2.8-2.8a1 1 0 011.4 1.4L9.4 12.1a6 6 0 008.5 8.5l2.8-2.8a1 1 0 011.4 1.4l-2.8 2.8A8 8 0 018 22z" fill="url(#logoGrad)"/>
+          <path d="M30 16a8 8 0 010 11.3l-2.8 2.8a1 1 0 01-1.4-1.4l2.8-2.8a6 6 0 00-8.5-8.5l-2.8 2.8a1 1 0 01-1.4-1.4l2.8-2.8A8 8 0 0130 16z" fill="url(#logoGrad)"/>
+          <text x="42" y="28" font-family="'Space Grotesk','Inter',sans-serif" font-weight="700" font-size="26" fill="url(#logoGrad)" letter-spacing="1">FREELINKO</text>
+        </svg>
+      </a>
       <div class="nav-actions">
         <span class="pill" id="statusBadge"><span class="status-dot offline"></span> Hors ligne</span>
         <button class="btn danger" type="button" data-logout>Se déconnecter</button>
@@ -244,6 +251,7 @@
             <input type="file" id="fileInput" multiple style="display:none" />
           </div>
           <div class="file-list" id="fileList"></div>
+          <button class="btn success sm" id="deliverBtn" style="margin-top:10px;display:none">Marquer comme livré</button>
         </div>
       </div>
     </div>
