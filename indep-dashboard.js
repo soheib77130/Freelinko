@@ -496,14 +496,29 @@ async function handleFileUpload() {
 }
 
 async function loadDeliverables(requestId) {
-  var result = await sb.from("deliverables").select("id,file_name,file_size,uploaded_at")
+  var result = await sb.from("deliverables").select("id,file_name,file_size,file_url,uploaded_at")
     .eq("request_id", requestId).order("uploaded_at", { ascending: false });
   var data = result.data;
   if (!data || data.length === 0) { if (fileList) fileList.innerHTML = '<div class="hint">Aucun fichier.</div>'; return; }
+  // Only show delete buttons if mission is not yet in verification/termine
+  var canDelete = currentRequest && ["en_cours", "negociation"].indexOf(currentRequest.status) !== -1;
   if (fileList) fileList.innerHTML = data.map(function(f) {
     var size = f.file_size ? (f.file_size / 1024).toFixed(1) + " Ko" : "";
-    return '<div class="file-item"><span>' + f.file_name + '</span><span class="hint">' + size + '</span></div>';
+    var url = f.file_url && f.file_url.indexOf("simulated://") === -1 ? f.file_url : "";
+    var downloadBtn = url ? '<a href="' + url + '" target="_blank" class="btn sm" style="font-size:11px">Télécharger</a>' : '';
+    var deleteBtn = canDelete ? '<button class="btn sm danger" data-delete-file="' + f.id + '" style="font-size:11px">Supprimer</button>' : '';
+    return '<div class="file-item"><span>' + f.file_name + '</span><div style="display:flex;align-items:center;gap:4px"><span class="hint">' + size + '</span>' + downloadBtn + deleteBtn + '</div></div>';
   }).join("");
+  // Bind delete buttons
+  document.querySelectorAll("[data-delete-file]").forEach(function(btn) {
+    btn.addEventListener("click", async function() {
+      var fileId = btn.dataset.deleteFile;
+      var ok = window.confirm("Supprimer ce fichier ?");
+      if (!ok) return;
+      await sb.from("deliverables").delete().eq("id", fileId).eq("indep_user_id", currentUserId);
+      await loadDeliverables(requestId);
+    });
+  });
 }
 
 // ---- DELIVER (mark as verification) ----
@@ -567,12 +582,27 @@ async function openConversation(requestId) {
   // Cancel before en_cours
   if (["negociation"].indexOf(req.status) !== -1) {
     actionsHtml += '<button class="btn sm danger" id="cancelMissionIndepBtn">Annuler</button>';
-    actionsHtml += '<button class="btn sm primary" id="acceptPriceIndepBtn">Accepter le prix (' + (req.negotiated_price || req.budget || "?") + ' €)</button>';
+    actionsHtml += '<button class="btn sm primary" id="acceptPriceIndepBtn" style="display:none">Accepter le prix (' + (req.negotiated_price || req.budget || "?") + ' \u20ac)</button>';
   }
   if (["termine"].indexOf(req.status) !== -1) {
     actionsHtml += '<button class="btn sm" id="rateClientBtn" style="display:none">Noter le client</button>';
   }
   if (chatHeaderActions) chatHeaderActions.innerHTML = actionsHtml;
+
+  // Check who proposed last price - indep can only accept if client proposed last
+  if (["negociation"].indexOf(req.status) !== -1) {
+    var priceResult = await sb.from("request_messages")
+      .select("body").eq("request_id", req.id).eq("sender_role", "system")
+      .like("body", "%prix propos%")
+      .order("created_at", { ascending: false }).limit(1);
+    var lastMsg = priceResult.data && priceResult.data[0] ? priceResult.data[0].body : "";
+    var acceptBtn = document.getElementById("acceptPriceIndepBtn");
+    if (acceptBtn) {
+      // Indep can accept only if client proposed the last price
+      var lastIsClient = lastMsg.indexOf("client") !== -1;
+      acceptBtn.style.display = lastIsClient ? "inline-flex" : "none";
+    }
+  }
 
   // Bind actions
   var cancelBtn = document.getElementById("cancelMissionIndepBtn");

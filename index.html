@@ -4,10 +4,10 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Freelinko — Trouvez le bon independant, en toute confiance</title>
-  <meta name="description" content="Freelinko met en relation clients et independants qualifies avec paiement escrow securise. 2% de commission, support humain 7j/7."/>
+  <meta name="description" content="Freelinko met en relation clients et independants qualifies avec paiement escrow securise. Les frais les plus bas du marche, support humain 7j/7."/>
   <meta name="theme-color" content="#050a14"/>
   <meta property="og:title" content="Freelinko — Services independants, simplement"/>
-  <meta property="og:description" content="Embauchez un professionnel qualifie en 2 minutes. Paiement securise par escrow, seulement 2% de commission."/>
+  <meta property="og:description" content="Embauchez un professionnel qualifie en 2 minutes. Paiement securise par escrow, les frais les plus bas du marche."/>
   <meta property="og:type" content="website"/>
   <meta name="twitter:card" content="summary_large_image"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -121,9 +121,14 @@
     .hero-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(59,130,246,.5),rgba(34,197,94,.5),transparent)}
     .hero-panel::after{content:'';position:absolute;inset:0;background:radial-gradient(300px circle at 80% 20%,rgba(59,130,246,.06),transparent 60%);pointer-events:none}
     .panel-eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:var(--blue-soft);border:1px solid rgba(59,130,246,.18);font-size:12px;font-weight:700;color:#93c5fd;margin-bottom:20px;letter-spacing:.3px;text-transform:uppercase}
-    .panel-big{font-family:var(--font-display);font-size:64px;font-weight:700;letter-spacing:-3px;line-height:1;color:var(--white);margin-bottom:6px;position:relative;z-index:1}
+    .fee-toggle{display:flex;position:relative;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.04);padding:3px;margin-bottom:16px;z-index:2}
+    .fee-tab{flex:1;padding:8px 14px;font-size:12px;font-weight:700;color:var(--text-secondary);background:transparent;border:none;cursor:pointer;border-radius:10px;transition:color .3s;position:relative;z-index:2;white-space:nowrap}
+    .fee-tab.on{color:var(--white)}
+    .fee-slider{position:absolute;top:3px;left:3px;width:calc(50% - 3px);height:calc(100% - 6px);border-radius:10px;background:linear-gradient(135deg,rgba(59,130,246,.25),rgba(34,197,94,.25));border:1px solid rgba(59,130,246,.3);transition:transform .35s cubic-bezier(.4,0,.2,1);z-index:1}
+    .fee-slider.right{transform:translateX(100%)}
+    .panel-big{font-family:var(--font-display);font-size:64px;font-weight:700;letter-spacing:-3px;line-height:1;color:var(--white);margin-bottom:6px;position:relative;z-index:1;transition:opacity .25s}
     .panel-big span{background:linear-gradient(135deg,var(--blue),var(--green));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-    .panel-sub{color:var(--text-secondary);font-size:15px;margin-bottom:28px;position:relative;z-index:1}
+    .panel-sub{color:var(--text-secondary);font-size:15px;margin-bottom:28px;position:relative;z-index:1;transition:opacity .25s}
     .panel-feature{padding:16px;border-radius:14px;border:1px solid var(--border);background:rgba(255,255,255,.02);margin-bottom:10px;position:relative;z-index:1;transition:all .3s var(--ease)}
     .panel-feature:hover{border-color:var(--border-hover);background:rgba(255,255,255,.04)}
     .pf-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--blue);margin-bottom:4px}
@@ -441,21 +446,27 @@
 
       <aside class="hero-panel rv rv-d2">
         <div class="panel-eyebrow">&#x1f512; Escrow securise</div>
-        <div class="panel-big"><span>2%</span></div>
-        <div class="panel-sub">Commission unique. Zero frais caches, zero mauvaise surprise.</div>
+        <!-- Toggle Freelance / Client -->
+        <div class="fee-toggle" id="feeToggle">
+          <button class="fee-tab on" data-fee="freelance" type="button">Je suis Freelance</button>
+          <button class="fee-tab" data-fee="client" type="button">Je suis Client</button>
+          <div class="fee-slider" id="feeSlider"></div>
+        </div>
+        <div class="panel-big" id="feeBig"><span id="feeValue">2%</span></div>
+        <div class="panel-sub" id="feeSub">Gardez 98% de vos gains. La commission la plus basse du marche pour valoriser votre talent.</div>
         <div class="panel-feature">
           <div class="pf-label">Suivi en temps reel</div>
           <div class="pf-title">Dashboard centralise</div>
           <div class="pf-desc">Messages, statuts et livrables au meme endroit.</div>
         </div>
         <div class="panel-feature">
-          <div class="pf-label">Matching intelligent</div>
-          <div class="pf-title">Le bon profil, automatiquement</div>
-          <div class="pf-desc">Competences, budget et delai alignes.</div>
+          <div class="pf-label">Transparence totale</div>
+          <div class="pf-title">Chez Freelinko, on ne taxe pas le travail, on securise la reussite.</div>
+          <div class="pf-desc">Les frais les plus bas tout marche confondu pour la mise en relation de prestation de service.</div>
         </div>
         <div class="panel-checks">
           <div class="pcheck"><span class="pcheck-icon">&#x2713;</span><div>Validation admin avant paiement — <em>zero risque</em></div></div>
-          <div class="pcheck"><span class="pcheck-icon">&#x2713;</span><div>Matching par competence — <em>pas au hasard</em></div></div>
+          <div class="pcheck"><span class="pcheck-icon">&#x2713;</span><div>Paiement securise par escrow — <em>fonds bloques</em></div></div>
           <div class="pcheck"><span class="pcheck-icon">&#x2713;</span><div>Deposez, echangez, lancez — <em>c'est tout</em></div></div>
         </div>
       </aside>
@@ -575,7 +586,7 @@
       <div class="fcard rv rv-d2"><div class="fcard-icon">&#x1f4ca;</div><h3>Dashboard complet</h3><p>Suivez l'avancement, les livrables et les messages en un seul endroit.</p></div>
       <div class="fcard rv rv-d3"><div class="fcard-icon">&#x1f6e1;&#xfe0f;</div><h3>Escrow securise</h3><p>Votre argent est bloque tant que le travail n'est pas valide par un admin.</p></div>
       <div class="fcard rv rv-d4"><div class="fcard-icon">&#x1f91d;</div><h3>Support 7j/7</h3><p>Une equipe humaine, reactive et disponible a chaque etape de votre projet.</p></div>
-      <div class="fcard rv rv-d5"><div class="fcard-icon">&#x1f4b0;</div><h3>2% de commission</h3><p>Pas de frais d'inscription, pas de forfait. Juste 2% a la validation finale.</p></div>
+      <div class="fcard rv rv-d5"><div class="fcard-icon">&#x1f4b0;</div><h3>Frais les plus bas du marche</h3><p>2% pour les freelances, 5% + 0,70&#x20ac; pour les clients. Zero frais caches, zero mauvaise surprise.</p></div>
     </div>
   </section>
 
@@ -620,7 +631,7 @@
           </div>
           <div class="fnode">
             <div class="fcircle">&#x1f389;<span class="num">5</span></div>
-            <div class="fcontent"><h4>Paiement verse</h4><p>Conforme ? L'argent est immediatement verse a l'independant.</p><div class="detail"><span class="detail-ic">&#x26a1;</span>Versement rapide — seulement 2% de commission</div></div>
+            <div class="fcontent"><h4>Paiement verse</h4><p>Conforme ? L'argent est immediatement verse a l'independant.</p><div class="detail"><span class="detail-ic">&#x26a1;</span>Versement rapide — frais de protection : 5% + 0,70&#x20ac;</div></div>
           </div>
         </div>
       </div>
@@ -653,7 +664,7 @@
           </div>
           <div class="fnode">
             <div class="fcircle">&#x1f4b0;<span class="num">5</span></div>
-            <div class="fcontent"><h4>Commission -2%, puis versement</h4><p>2% deduits, le reste credite sur votre compte.</p><div class="detail"><span class="detail-ic">&#x1f680;</span>98% pour vous — versement rapide</div></div>
+            <div class="fcontent"><h4>Commission -2%, puis versement</h4><p>Seulement 2% deduits, le reste credite sur votre compte.</p><div class="detail"><span class="detail-ic">&#x1f680;</span>98% pour vous — les frais les plus bas du marche</div></div>
           </div>
         </div>
       </div>
@@ -668,7 +679,7 @@
       <p>Tout ce qu'il faut savoir avant de se lancer.</p>
     </div>
     <div class="faq-list">
-      <div class="faq-item rv"><button class="faq-q" type="button">Comment fonctionne la commission de 2% ?<span class="faq-ic">+</span></button><div class="faq-a"><div class="faq-a-inner">La commission est fixe et prelevee uniquement apres validation de la mission par un administrateur. Pas de frais d'inscription, pas de frais caches.</div></div></div>
+      <div class="faq-item rv"><button class="faq-q" type="button">Comment fonctionnent les frais Freelinko ?<span class="faq-ic">+</span></button><div class="faq-a"><div class="faq-a-inner">Les freelances paient 2% de commission a la validation finale — ils gardent 98% de leurs gains. Les clients paient 5% + 0,70&#x20ac; de frais de protection qui couvrent le sequestre, la verification admin et l'assurance litige. Pas de frais d'inscription, pas de frais caches.</div></div></div>
       <div class="faq-item rv rv-d1"><button class="faq-q" type="button">Puis-je discuter avec l'independant avant de payer ?<span class="faq-ic">+</span></button><div class="faq-a"><div class="faq-a-inner">Absolument. Vous echangez librement pour cadrer le perimetre, le budget et le delai avant tout engagement financier.</div></div></div>
       <div class="faq-item rv rv-d2"><button class="faq-q" type="button">Quels types de services sont disponibles ?<span class="faq-ic">+</span></button><div class="faq-a"><div class="faq-a-inner">Design, developpement, video, redaction, marketing digital et bien plus. Vous pouvez aussi soumettre un brief sur mesure.</div></div></div>
       <div class="faq-item rv rv-d3"><button class="faq-q" type="button">Que se passe-t-il si je ne suis pas satisfait ?<span class="faq-ic">+</span></button><div class="faq-a"><div class="faq-a-inner">L'argent reste bloque en escrow tant que la livraison n'est pas validee. Aucun paiement sans votre accord et la verification des livrables par un admin.</div></div></div>
@@ -691,7 +702,7 @@
       </article>
       <article class="tcard rv rv-d1">
         <div class="tcard-stars">&#x2605;&#x2605;&#x2605;&#x2605;&#x2605;</div>
-        <blockquote>"Plateforme fluide, briefs bien cadres. Le 2% de commission change vraiment la donne."</blockquote>
+        <blockquote>"Plateforme fluide, briefs bien cadres. Seulement 2% de commission, ca change vraiment la donne."</blockquote>
         <div class="tcard-author"><div class="tcard-av">&#x1f3a8;</div><div><div class="tcard-name">Yacine</div><div class="tcard-role">Motion designer &middot; 5 missions en 2 mois</div></div></div>
       </article>
       <article class="tcard rv rv-d2">
@@ -859,6 +870,37 @@ if(cf)cf.addEventListener('submit',e=>{e.preventDefault();const b=cf.querySelect
 // ── SCROLL TO TOP ──
 const tt=document.getElementById('toTop');
 if(tt){addEventListener('scroll',()=>tt.classList.toggle('show',scrollY>500),{passive:true});tt.addEventListener('click',()=>scrollTo({top:0,behavior:'smooth'}))}
+
+// ── FEE TOGGLE ──
+const feeTabs=document.querySelectorAll('.fee-tab');
+const feeSlider=document.getElementById('feeSlider');
+const feeValue=document.getElementById('feeValue');
+const feeSub=document.getElementById('feeSub');
+const feeBig=document.getElementById('feeBig');
+feeTabs.forEach(t=>t.addEventListener('click',()=>{
+  const mode=t.dataset.fee;
+  feeTabs.forEach(x=>x.classList.remove('on'));
+  t.classList.add('on');
+  if(mode==='client'){
+    feeSlider.classList.add('right');
+    feeBig.style.opacity='0';
+    setTimeout(()=>{
+      feeValue.textContent='5% + 0,70\u20ac';
+      feeBig.style.fontSize='48px';
+      feeSub.textContent='Protection Garantie & Sequestre. Payez le juste prix pour securiser votre projet de A a Z.';
+      feeBig.style.opacity='1';
+    },150);
+  }else{
+    feeSlider.classList.remove('right');
+    feeBig.style.opacity='0';
+    setTimeout(()=>{
+      feeValue.textContent='2%';
+      feeBig.style.fontSize='64px';
+      feeSub.textContent='Gardez 98% de vos gains. La commission la plus basse du marche pour valoriser votre talent.';
+      feeBig.style.opacity='1';
+    },150);
+  }
+}));
 </script>
 </body>
 </html>

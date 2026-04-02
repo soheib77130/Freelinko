@@ -109,6 +109,30 @@ async function loadVerificationMissions() {
   });
 }
 
+function formatSpecChecklist(spec) {
+  if (!spec) return "";
+  // Handle JSON array of objects
+  if (Array.isArray(spec)) {
+    return spec.map(function(item, i) {
+      if (typeof item === "object" && item !== null) {
+        // Try common keys: label, title, name, text, description, task
+        var text = item.label || item.title || item.name || item.text || item.description || item.task || "";
+        var done = item.done || item.checked || item.completed || false;
+        if (!text) text = JSON.stringify(item);
+        return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0">' +
+          '<span style="color:' + (done ? 'var(--accent)' : 'var(--muted)') + '">' + (done ? '&#x2705;' : '&#x2B1C;') + '</span>' +
+          '<span>' + text + '</span></div>';
+      }
+      return '<div style="padding:2px 0">- ' + String(item) + '</div>';
+    }).join("");
+  }
+  // Handle string
+  if (typeof spec === "string") return spec;
+  // Handle single object
+  if (typeof spec === "object") return JSON.stringify(spec, null, 2);
+  return String(spec);
+}
+
 async function renderVerificationCard(r) {
   // Load deliverables
   var delResult = await sb.from("deliverables").select("file_name,file_size,file_url,uploaded_at")
@@ -121,11 +145,14 @@ async function renderVerificationCard(r) {
   } else {
     deliverables.forEach(function(f) {
       var size = f.file_size ? (f.file_size / 1024).toFixed(1) + " Ko" : "";
-      filesHtml += '<div class="file-item"><span>' + f.file_name + '</span><span class="hint">' + size + '</span></div>';
+      var url = f.file_url && f.file_url.indexOf("simulated://") === -1 ? f.file_url : "";
+      var downloadBtn = url ? '<a href="' + url + '" target="_blank" class="btn sm" style="margin-left:8px">Télécharger</a>' : '<span class="hint" style="margin-left:8px">Fichier simulé</span>';
+      filesHtml += '<div class="file-item"><span>' + f.file_name + '</span><div style="display:flex;align-items:center;gap:4px"><span class="hint">' + size + '</span>' + downloadBtn + '</div></div>';
     });
   }
 
   var deliveredDate = r.delivered_at ? new Date(r.delivered_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+  var specHtml = r.spec_checklist ? formatSpecChecklist(r.spec_checklist) : "";
 
   return '<div class="mission-card">' +
     '<h4>' + r.title + ' <span class="pill yellow">Vérification</span></h4>' +
@@ -134,7 +161,7 @@ async function renderVerificationCard(r) {
     '<div class="detail-row"><span class="dl">Compétences</span><span class="dd">' + (r.skills || "—") + '</span></div>' +
     '<div class="detail-row"><span class="dl">Livré le</span><span class="dd">' + deliveredDate + '</span></div>' +
     (r.description ? '<div class="detail-row"><span class="dl">Description</span><span class="dd" style="max-width:60%;text-align:right">' + r.description + '</span></div>' : '') +
-    (r.spec_checklist ? '<div class="detail-row"><span class="dl">Cahier des charges</span><span class="dd" style="max-width:60%;text-align:right;white-space:pre-wrap">' + r.spec_checklist + '</span></div>' : '') +
+    (specHtml ? '<div style="margin-top:10px;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)"><strong style="font-size:13px;display:block;margin-bottom:8px">Cahier des charges :</strong>' + specHtml + '</div>' : '') +
     '<div style="margin-top:12px"><strong style="font-size:13px">Livrables :</strong></div>' +
     filesHtml +
     '<div style="margin-top:14px;display:flex;gap:8px">' +

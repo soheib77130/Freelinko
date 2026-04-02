@@ -171,9 +171,9 @@ async function openConversation(requestId) {
     actionsHtml += `<button class="btn sm danger" id="cancelMissionBtn">Annuler la mission</button>`;
   }
 
-  // Negotiation: show propose price + accept current price
+  // Negotiation: show propose price + accept current price (only if indep proposed last)
   if (req.status === "negociation") {
-    actionsHtml += `<button class="btn sm primary" id="acceptPriceBtn">Accepter le prix (${req.negotiated_price || req.budget || "?"} €)</button>`;
+    actionsHtml += `<button class="btn sm primary" id="acceptPriceBtn" style="display:none">Accepter le prix (${req.negotiated_price || req.budget || "?"} €)</button>`;
     actionsHtml += `<button class="btn sm danger" id="declineProposalBtn">Refuser la candidature</button>`;
   }
 
@@ -196,6 +196,30 @@ async function openConversation(requestId) {
   document.getElementById("declineProposalBtn")?.addEventListener("click", declineProposal);
   document.getElementById("viewDeliverablesBtn")?.addEventListener("click", viewDeliverables);
   document.getElementById("rateBtn")?.addEventListener("click", () => openRatingModal());
+
+  // Check who proposed last price - client can only accept if indep proposed last
+  if (req.status === "negociation") {
+    const { data: priceMsgs } = await sb.from("request_messages")
+      .select("body").eq("request_id", req.id).eq("sender_role", "system")
+      .like("body", "%prix propos%")
+      .order("created_at", { ascending: false }).limit(1);
+    const lastPriceMsg = priceMsgs?.[0]?.body || "";
+    const indepProposed = lastPriceMsg.includes("ind\u00e9pendant") || lastPriceMsg.includes("independant") || lastPriceMsg.includes("Candidature");
+    // Also check initial candidature (indep always proposes first when applying)
+    const { data: anyClientPrice } = await sb.from("request_messages")
+      .select("id").eq("request_id", req.id).eq("sender_role", "system")
+      .like("body", "%client propose%").limit(1);
+    const clientEverProposed = anyClientPrice && anyClientPrice.length > 0;
+    // Show accept button only if the other party proposed last
+    const acceptBtn = document.getElementById("acceptPriceBtn");
+    if (acceptBtn) {
+      // If no explicit client price msg exists, indep proposed (via candidature) so client CAN accept
+      // If last price msg is from indep, client CAN accept
+      // If last price msg is from client, client CANNOT accept (they proposed last)
+      const lastIsClient = lastPriceMsg.includes("client");
+      acceptBtn.style.display = lastIsClient ? "none" : "inline-flex";
+    }
+  }
 
   // Check if already rated before showing rate button
   if (req.status === "termine") {
@@ -298,7 +322,7 @@ async function proposePrice() {
     sender_user_id: currentUserId,
     sender_role: "system",
     channel: "fil",
-    body: `Le client propose un nouveau prix : ${price} €`
+    body: `Le client propose un nouveau prix : ${price} \u20ac`
   });
   await loadMessages();
   await openConversation(currentRequest.id);
@@ -400,7 +424,9 @@ async function viewDeliverables() {
   let html = '<div style="padding:10px"><h3 style="margin-bottom:12px">Livrables</h3>';
   data.forEach(f => {
     const size = f.file_size ? (f.file_size / 1024).toFixed(1) + " Ko" : "";
-    html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);margin-bottom:6px;font-size:13px"><span>${f.file_name}</span><span class="hint">${size}</span></div>`;
+    const url = f.file_url && !f.file_url.startsWith("simulated://") ? f.file_url : "";
+    const downloadBtn = url ? `<a href="${url}" target="_blank" class="btn sm" style="margin-left:8px">Télécharger</a>` : `<span class="hint" style="margin-left:8px">Fichier simulé</span>`;
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);margin-bottom:6px;font-size:13px"><span>${f.file_name}</span><div style="display:flex;align-items:center;gap:4px"><span class="hint">${size}</span>${downloadBtn}</div></div>`;
   });
   html += '</div>';
   chatMessages.innerHTML = html;
