@@ -482,13 +482,33 @@ function updateDeadline(req) {
 if (fileZone) fileZone.addEventListener("click", function() { if (fileInput) fileInput.click(); });
 if (fileInput) fileInput.addEventListener("change", handleFileUpload);
 
+var MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 Mo
+
 async function handleFileUpload() {
   if (!currentRequest || !fileInput.files.length) return;
   for (var i = 0; i < fileInput.files.length; i++) {
     var file = fileInput.files[i];
+    if (file.size > MAX_FILE_SIZE) {
+      alert(file.name + " dépasse la limite de 50 Mo.");
+      continue;
+    }
+    // Upload to Supabase Storage
+    var filePath = currentRequest.id + "/" + Date.now() + "_" + file.name;
+    var uploadResult = await sb.storage.from("deliverables").upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: false
+    });
+    if (uploadResult.error) {
+      alert("Erreur upload : " + uploadResult.error.message);
+      continue;
+    }
+    // Get public URL
+    var urlResult = sb.storage.from("deliverables").getPublicUrl(filePath);
+    var publicUrl = urlResult.data ? urlResult.data.publicUrl : "";
+    // Save to database
     await sb.from("deliverables").insert({
       request_id: currentRequest.id, indep_user_id: currentUserId,
-      file_name: file.name, file_url: "simulated://" + file.name, file_size: file.size
+      file_name: file.name, file_url: publicUrl, file_size: file.size
     });
   }
   fileInput.value = "";
@@ -515,6 +535,14 @@ async function loadDeliverables(requestId) {
       var fileId = btn.dataset.deleteFile;
       var ok = window.confirm("Supprimer ce fichier ?");
       if (!ok) return;
+      // Get file URL to extract storage path
+      var fileData = data.find(function(f) { return String(f.id) === String(fileId); });
+      if (fileData && fileData.file_url && fileData.file_url.indexOf("/deliverables/") !== -1) {
+        var storagePath = fileData.file_url.split("/deliverables/").pop();
+        if (storagePath) {
+          await sb.storage.from("deliverables").remove([decodeURIComponent(storagePath)]);
+        }
+      }
       await sb.from("deliverables").delete().eq("id", fileId).eq("indep_user_id", currentUserId);
       await loadDeliverables(requestId);
     });
