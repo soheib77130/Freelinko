@@ -1,5 +1,5 @@
 const SUPABASE_URL = "https://skfqoyyoahuaffshimnc.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_yxLCOU94zhGck9yvGYch5Q_ePCPd9Yq";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrZnFveXlvYWh1YWZmc2hpbW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NTgwNDUsImV4cCI6MjA4NTEzNDA0NX0.2bC5-h7QpooJIHaci6CvRT5qG-XcKj2HQe1ZI5CDD1E";
 const sb = window.supabase?.createClient?.(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storage: window.localStorage }
 });
@@ -239,12 +239,13 @@ async function loadUserRating() {
 }
 
 function formatStatus(s) {
-  var m = { nouveau: "Nouveau", en_attente: "En attente", negociation: "Négociation", en_cours: "En cours", verification: "Vérification", termine: "Terminé", annule: "Annulé" };
+  var m = { nouveau: "Nouveau", en_attente: "En attente", negociation: "Négociation", en_attente_paiement: "En attente de paiement", en_cours: "En cours", verification: "Vérification", termine: "Terminé", annule: "Annulé" };
   return m[s] || s || "Nouveau";
 }
 function statusPillClass(s) {
   if (s === "en_cours") return "green";
   if (s === "negociation") return "yellow";
+  if (s === "en_attente_paiement") return "yellow";
   if (s === "verification") return "yellow";
   if (s === "termine") return "green";
   if (s === "annule") return "red";
@@ -651,13 +652,13 @@ async function openConversation(requestId) {
   var acceptPriceBtn = document.getElementById("acceptPriceIndepBtn");
   if (acceptPriceBtn) acceptPriceBtn.addEventListener("click", async function() {
     var price = req.negotiated_price || req.budget || 0;
-    var ok = window.confirm("Accepter le prix de " + price + " € ? La mission passera en cours.");
+    var ok = window.confirm("Accepter le prix de " + price + " \u20ac ? Le client devra effectuer le paiement pour lancer la mission.");
     if (!ok) return;
-    var upResult = await sb.from("requests").update({ status: "en_cours" }).eq("id", req.id);
-    if (upResult.error) { alert("Erreur. Réessayez."); return; }
+    var upResult = await sb.from("requests").update({ status: "en_attente_paiement" }).eq("id", req.id);
+    if (upResult.error) { alert("Erreur. R\u00e9essayez."); return; }
     await sb.from("request_messages").insert({
       request_id: req.id, sender_user_id: currentUserId, sender_role: "system", channel: "fil",
-      body: "L'indépendant a accepté le prix de " + price + " €. Mission en cours ✅"
+      body: "L'ind\u00e9pendant a accept\u00e9 le prix de " + price + " \u20ac. En attente du paiement client."
     }).catch(function(){});
     await refreshAll();
     await openConversation(req.id);

@@ -1,5 +1,5 @@
 const SUPABASE_URL = "https://skfqoyyoahuaffshimnc.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_yxLCOU94zhGck9yvGYch5Q_ePCPd9Yq";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrZnFveXlvYWh1YWZmc2hpbW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NTgwNDUsImV4cCI6MjA4NTEzNDA0NX0.2bC5-h7QpooJIHaci6CvRT5qG-XcKj2HQe1ZI5CDD1E";
 const sb = window.supabase?.createClient?.(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storage: window.localStorage }
 });
@@ -90,13 +90,14 @@ async function loadRating() {
 }
 
 function formatStatus(s) {
-  const m = { nouveau: "Nouveau", en_attente: "En attente", negociation: "Négociation", en_cours: "En cours", verification: "Vérification", termine: "Terminé", annule: "Annulé" };
+  const m = { nouveau: "Nouveau", en_attente: "En attente", negociation: "Négociation", en_attente_paiement: "En attente de paiement", en_cours: "En cours", verification: "Vérification", termine: "Terminé", annule: "Annulé" };
   return m[s] || s || "Nouveau";
 }
 
 function statusPillClass(s) {
   if (s === "en_cours") return "green";
   if (s === "negociation") return "yellow";
+  if (s === "en_attente_paiement") return "yellow";
   if (s === "verification") return "yellow";
   if (s === "termine") return "green";
   if (s === "annule") return "red";
@@ -171,10 +172,17 @@ async function openConversation(requestId) {
     actionsHtml += `<button class="btn sm danger" id="cancelMissionBtn">Annuler la mission</button>`;
   }
 
+
   // Negotiation: show propose price + accept current price (only if indep proposed last)
   if (req.status === "negociation") {
     actionsHtml += `<button class="btn sm primary" id="acceptPriceBtn" style="display:none">Accepter le prix (${req.negotiated_price || req.budget || "?"} €)</button>`;
     actionsHtml += `<button class="btn sm danger" id="declineProposalBtn">Refuser la candidature</button>`;
+  }
+
+  // Payment pending: show pay button
+  if (req.status === "en_attente_paiement") {
+    actionsHtml += `<button class="btn sm primary" id="payNowBtn" style="background:linear-gradient(135deg,#f59e0b,#f97316);box-shadow:0 10px 20px rgba(245,158,11,.3)">Payer maintenant</button>`;
+    actionsHtml += `<button class="btn sm danger" id="cancelMissionBtn">Annuler</button>`;
   }
 
   // Verification: show status info
@@ -196,6 +204,9 @@ async function openConversation(requestId) {
   document.getElementById("declineProposalBtn")?.addEventListener("click", declineProposal);
   document.getElementById("viewDeliverablesBtn")?.addEventListener("click", viewDeliverables);
   document.getElementById("rateBtn")?.addEventListener("click", () => openRatingModal());
+  document.getElementById("payNowBtn")?.addEventListener("click", () => {
+    window.location.href = "paiement.html?request_id=" + currentRequest.id;
+  });
 
   // Check who proposed last price - client can only accept if indep proposed last
   if (req.status === "negociation") {
@@ -258,6 +269,10 @@ async function openConversation(requestId) {
   if (req.status === "negociation") {
     const displayedPrice = req.negotiated_price || req.budget || "à définir";
     chatHint.textContent = `Négociation — Prix actuel : ${displayedPrice} €. Proposez un prix ou acceptez celui de l'indépendant.`;
+  } else if (req.status === "en_attente_paiement") {
+    const price = req.negotiated_price || req.budget || 0;
+    const fee = Math.round((price * 0.05 + 0.70) * 100) / 100;
+    chatHint.textContent = `Prix accepté : ${price} € + ${fee} € de protection = ${(price + fee).toFixed(2)} € TTC. Cliquez sur "Payer maintenant" pour lancer la mission.`;
   } else if (req.status === "en_cours") {
     chatHint.textContent = "Mission en cours — L'indépendant travaille sur votre demande.";
   } else if (req.status === "verification") {
@@ -332,11 +347,13 @@ async function proposePrice() {
 async function acceptPrice() {
   if (!currentRequest) return;
   const price = currentRequest.negotiated_price || currentRequest.budget || 0;
-  const ok = window.confirm(`Accepter le prix de ${price} € ? La mission passera en cours.`);
+  const fee = Math.round((price * 0.05 + 0.70) * 100) / 100;
+  const total = (price + fee).toFixed(2);
+  const ok = window.confirm(`Accepter le prix de ${price} € ?\nFrais de protection : ${fee} €\nTotal à payer : ${total} €\n\nVous serez redirigé vers la page de paiement.`);
   if (!ok) return;
 
   const { error } = await sb.from("requests").update({
-    status: "en_cours"
+    status: "en_attente_paiement"
   }).eq("id", currentRequest.id).eq("client_user_id", currentUserId);
 
   if (error) {
@@ -349,11 +366,11 @@ async function acceptPrice() {
     sender_user_id: currentUserId,
     sender_role: "system",
     channel: "fil",
-    body: `Le client a accepté le prix de ${price} €. La mission passe en cours ✅`
+    body: `Le client a accepté le prix de ${price} €. En attente du paiement.`
   }).catch(() => {});
 
-  await refreshAll();
-  await openConversation(currentRequest.id);
+  // Redirect to payment page
+  window.location.href = "paiement.html?request_id=" + currentRequest.id;
 }
 
 async function declineProposal() {
