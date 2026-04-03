@@ -182,13 +182,31 @@ async function validateMission(requestId) {
     return;
   }
 
+  // Get mission details for notification
+  var { data: missionData } = await sb.from("requests")
+    .select("assigned_indep_user_id, negotiated_price, budget, title")
+    .eq("id", requestId).maybeSingle();
+
   await sb.from("request_messages").insert({
     request_id: requestId,
     sender_user_id: currentAdminId,
     sender_role: "system",
     channel: "fil",
-    body: "L'administrateur a validé les livrables. Mission terminée ✅"
+    body: "L'administrateur a validé les livrables. Mission terminée ✅ Le virement est maintenant disponible."
   }).catch(function(){});
+
+  // Notify indep that payout is available
+  if (missionData && missionData.assigned_indep_user_id) {
+    var price = Number(missionData.negotiated_price || missionData.budget || 0);
+    var net = Math.round((price - price * 0.02) * 100) / 100;
+    await sb.from("notifications").insert({
+      user_id: missionData.assigned_indep_user_id,
+      type: "payout_available",
+      title: "Virement disponible",
+      body: "La mission \"" + (missionData.title || "") + "\" est validée. " + net.toFixed(2) + " € sont disponibles au virement.",
+      request_id: requestId
+    }).catch(function(){});
+  }
 
   alert("Mission validée avec succès !");
   await loadAll();

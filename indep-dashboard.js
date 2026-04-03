@@ -147,6 +147,16 @@ async function init() {
   updateStatusUI();
   await refreshAll();
   setupRealtime();
+
+  // Handle Stripe Connect return
+  var urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get("stripe") === "success") {
+    alert("Compte de paiement configuré avec succès ! Vous pouvez maintenant recevoir des virements.");
+    window.history.replaceState({}, "", "indep-dashboard.html");
+  } else if (urlParams.get("stripe") === "refresh") {
+    alert("La configuration n'est pas terminée. Cliquez sur 'Configurer' pour reprendre.");
+    window.history.replaceState({}, "", "indep-dashboard.html");
+  }
 }
 init();
 
@@ -216,6 +226,7 @@ async function refreshAll() {
   await loadKPIs().catch(function(){});
   await loadUserRating().catch(function(){});
   await loadAvailableRequests().catch(function(){});
+  await loadEarnings().catch(function(){});
 }
 
 async function loadKPIs() {
@@ -237,6 +248,171 @@ async function loadUserRating() {
   var avg = data.reduce(function(s, r) { return s + Number(r.score); }, 0) / data.length;
   if (kpiRating) kpiRating.textContent = avg.toFixed(1) + " / 10";
 }
+
+// ---- EARNINGS & PAYOUTS ----
+async function loadEarnings() {
+  var kpiAvailable = document.getElementById("kpiAvailable");
+  var kpiPending = document.getElementById("kpiPending");
+  var kpiPaidOut = document.getElementById("kpiPaidOut");
+  var stripeAccountStatus = document.getElementById("stripeAccountStatus");
+  var payoutMissionsList = document.getElementById("payoutMissionsList");
+
+  // Get all missions assigned to this indep
+  var { data: missions } = await sb.from("requests")
+    .select("id,title,status,negotiated_price,budget")
+    .eq("assigned_indep_user_id", currentUserId)
+    .in("status", ["en_cours", "verification", "termine"]);
+  missions = missions || [];
+
+  // Get existing payouts
+  var { data: payouts } = await sb.from("payouts")
+    .select("request_id,status,net_amount")
+    .eq("indep_user_id", currentUserId);
+  payouts = payouts || [];
+
+  var paidRequestIds = payouts.filter(function(p) { return p.status === "completed"; }).map(function(p) { return p.request_id; });
+  var totalPaidOut = payouts.filter(function(p) { return p.status === "completed"; }).reduce(function(s, p) { return s + Number(p.net_amount || 0); }, 0);
+
+  // Available = terminé + not yet paid out
+  var availableMissions = missions.filter(function(m) { return m.status === "termine" && paidRequestIds.indexOf(m.id) === -1; });
+  var availableAmount = availableMissions.reduce(function(s, m) {
+    var price = Number(m.negotiated_price || m.budget || 0);
+    return s + Math.round((price - price * 0.02) * 100) / 100;
+  }, 0);
+
+  // Pending = en_cours + verification
+  var pendingMissions = missions.filter(function(m) { return ["en_cours", "verification"].indexOf(m.status) !== -1; });
+  var pendingAmount = pendingMissions.reduce(function(s, m) {
+    var price = Number(m.negotiated_price || m.budget || 0);
+    return s + Math.round((price - price * 0.02) * 100) / 100;
+  }, 0);
+
+  if (kpiAvailable) kpiAvailable.textContent = availableAmount.toFixed(2) + " €";
+  if (kpiPending) kpiPending.textContent = pendingAmount.toFixed(2) + " €";
+  if (kpiPaidOut) kpiPaidOut.textContent = totalPaidOut.toFixed(2) + " €";
+
+  // Stripe account status
+  if (stripeAccountStatus) {
+    var { data: indepProfile } = await sb.from("independants")
+      .select("stripe_account_id").eq("user_id", currentUserId).maybeSingle();
+
+    var hasStripe = indepProfile && indepProfile.stripe_account_id;
+
+    if (!hasStripe) {
+      stripeAccountStatus.innerHTML = '<div style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:12px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.08)"><span style="font-size:18px">&#x26a0;&#xfe0f;</span><div><div style="font-weight:700;font-size:13px;color:#fde68a">Compte de paiement non configuré</div><div class="hint">Configurez votre compte pour recevoir vos virements.</div></div><button class="btn sm primary" id="setupStripeBtn" style="margin-left:auto">Configurer</button></div>';
+      document.getElementById("setupStripeBtn")?.addEventListener("click", setupStripeAccount);
+    } else {
+      stripeAccountStatus.innerHTML = '<div style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:12px;border:1px solid rgba(34,197,94,.3);background:rgba(34,197,94,.08)"><span style="font-size:18px">&#x2705;</span><div><div style="font-weight:700;font-size:13px;color:#86efac">Compte de paiement configuré</div><div class="hint">Vous pouvez demander des virements.</div></div></div>';
+    }
+  }
+
+  // List missions with payout actions
+  if (payoutMissionsList) {
+    if (availableMissions.length === 0 && pendingMissions.length === 0) {
+      payoutMissionsList.innerHTML = '<div class="hint">Aucune mission avec gains pour le moment.</div>';
+      return;
+    }
+
+    var html = "";
+    availableMissions.forEach(function(m) {
+      var price = Number(m.negotiated_price || m.budget || 0);
+      var net = Math.round((price - price * 0.02) * 100) / 100;
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;border:1px solid rgba(34,197,94,.2);background:rgba(34,197,94,.05);font-size:13px">'
+        + '<div><span style="font-weight:700">' + (m.title || "Mission") + '</span><br><span class="hint">' + net.toFixed(2) + ' € net (après 2% commission)</span></div>'
+        + '<button class="btn sm success" onclick="requestPayout(\'' + m.id + '\')">Demander le virement</button>'
+        + '</div>';
+    });
+
+    pendingMissions.forEach(function(m) {
+      var price = Number(m.negotiated_price || m.budget || 0);
+      var net = Math.round((price - price * 0.02) * 100) / 100;
+      var statusLabel = m.status === "verification" ? "En vérification" : "En cours";
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.03);font-size:13px">'
+        + '<div><span style="font-weight:700">' + (m.title || "Mission") + '</span><br><span class="hint">' + net.toFixed(2) + ' € net estimé</span></div>'
+        + '<span class="pill yellow">' + statusLabel + '</span>'
+        + '</div>';
+    });
+
+    // Show already paid missions
+    var paidMissions = missions.filter(function(m) { return paidRequestIds.indexOf(m.id) !== -1; });
+    paidMissions.forEach(function(m) {
+      var payout = payouts.find(function(p) { return p.request_id === m.id; });
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.02);font-size:13px;opacity:.7">'
+        + '<div><span style="font-weight:700">' + (m.title || "Mission") + '</span><br><span class="hint">' + (payout ? payout.net_amount : "—") + ' € viré</span></div>'
+        + '<span class="pill green">Viré &#x2705;</span>'
+        + '</div>';
+    });
+
+    payoutMissionsList.innerHTML = html;
+  }
+}
+
+async function setupStripeAccount() {
+  var btn = document.getElementById("setupStripeBtn");
+  if (btn) { btn.textContent = "Chargement..."; btn.disabled = true; }
+
+  try {
+    var { data: { session } } = await sb.auth.getSession();
+    if (!session) { window.location.href = "connexion.html"; return; }
+
+    var response = await fetch(SUPABASE_URL + "/functions/v1/connect-onboarding", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + session.access_token,
+        "apikey": SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({})
+    });
+
+    var responseText = await response.text();
+    var result = JSON.parse(responseText);
+
+    if (result.url) {
+      window.location.href = result.url;
+    } else {
+      alert("Erreur : " + (result.error || "Impossible de configurer le compte."));
+      if (btn) { btn.textContent = "Configurer"; btn.disabled = false; }
+    }
+  } catch (err) {
+    alert("Erreur de connexion : " + err.message);
+    if (btn) { btn.textContent = "Configurer"; btn.disabled = false; }
+  }
+}
+
+async function requestPayout(requestId) {
+  var ok = window.confirm("Demander le virement pour cette mission ?\nLe montant sera transféré sur votre compte Stripe (délai 2-7 jours ouvrés).");
+  if (!ok) return;
+
+  try {
+    var { data: { session } } = await sb.auth.getSession();
+    if (!session) { window.location.href = "connexion.html"; return; }
+
+    var response = await fetch(SUPABASE_URL + "/functions/v1/request-payout", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + session.access_token,
+        "apikey": SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ request_id: requestId })
+    });
+
+    var responseText = await response.text();
+    var result = JSON.parse(responseText);
+
+    if (result.success) {
+      alert("Virement demandé ! " + result.net_amount + " € seront transférés sur votre compte (délai 2-7 jours).");
+      await loadEarnings();
+    } else {
+      alert("Erreur : " + (result.error || "Impossible de demander le virement."));
+    }
+  } catch (err) {
+    alert("Erreur de connexion : " + err.message);
+  }
+}
+// Make requestPayout available globally for onclick
+window.requestPayout = requestPayout;
 
 function formatStatus(s) {
   var m = { nouveau: "Nouveau", en_attente: "En attente", negociation: "Négociation", en_attente_paiement: "En attente de paiement", en_cours: "En cours", verification: "Vérification", termine: "Terminé", annule: "Annulé" };

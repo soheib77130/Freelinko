@@ -219,6 +219,30 @@
       </div>
     </div>
 
+    <!-- Gains & Paiements -->
+    <div class="card fade-in d2" style="margin-bottom:14px">
+      <h3>&#x1f4b0; Gains & Paiements</h3>
+      <div class="summary" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px">
+        <div class="stat">
+          <span class="label">Disponible</span>
+          <span class="value" style="color:#86efac" id="kpiAvailable">0 €</span>
+          <span class="sub">Prêt à être viré</span>
+        </div>
+        <div class="stat">
+          <span class="label">En attente</span>
+          <span class="value" style="color:#fde68a" id="kpiPending">0 €</span>
+          <span class="sub">Missions en cours</span>
+        </div>
+        <div class="stat">
+          <span class="label">Total viré</span>
+          <span class="value" id="kpiPaidOut">0 €</span>
+          <span class="sub">Déjà reçu</span>
+        </div>
+      </div>
+      <div id="stripeAccountStatus" style="margin-bottom:12px"></div>
+      <div id="payoutMissionsList" style="display:grid;gap:6px"></div>
+    </div>
+
     <!-- Available requests for indeps to apply -->
     <div class="card fade-in d2" style="margin-bottom:14px">
       <h3>Demandes disponibles</h3>
