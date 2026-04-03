@@ -259,7 +259,7 @@ async function loadEarnings() {
 
   // Get all missions assigned to this indep
   var { data: missions } = await sb.from("requests")
-    .select("id,title,status,negotiated_price,budget")
+    .select("id,title,status,negotiated_price,budget,completed_at")
     .eq("assigned_indep_user_id", currentUserId)
     .in("status", ["en_cours", "verification", "termine"]);
   missions = missions || [];
@@ -273,19 +273,38 @@ async function loadEarnings() {
   var paidRequestIds = payouts.filter(function(p) { return p.status === "completed"; }).map(function(p) { return p.request_id; });
   var totalPaidOut = payouts.filter(function(p) { return p.status === "completed"; }).reduce(function(s, p) { return s + Number(p.net_amount || 0); }, 0);
 
-  // Available = terminé + not yet paid out
-  var availableMissions = missions.filter(function(m) { return m.status === "termine" && paidRequestIds.indexOf(m.id) === -1; });
+  var PAYOUT_DELAY_MS = 3 * 24 * 60 * 60 * 1000; // 3 jours en ms
+  var now = Date.now();
+
+  // Terminé + not yet paid out
+  var termineMissions = missions.filter(function(m) { return m.status === "termine" && paidRequestIds.indexOf(m.id) === -1; });
+
+  // Split into: ready (3 days passed) vs waiting (still in delay)
+  var availableMissions = termineMissions.filter(function(m) {
+    var completedAt = m.completed_at ? new Date(m.completed_at).getTime() : 0;
+    return completedAt > 0 && (now - completedAt) >= PAYOUT_DELAY_MS;
+  });
+  var waitingMissions = termineMissions.filter(function(m) {
+    var completedAt = m.completed_at ? new Date(m.completed_at).getTime() : 0;
+    return !completedAt || (now - completedAt) < PAYOUT_DELAY_MS;
+  });
+
   var availableAmount = availableMissions.reduce(function(s, m) {
     var price = Number(m.negotiated_price || m.budget || 0);
     return s + Math.round((price - price * 0.02) * 100) / 100;
   }, 0);
 
-  // Pending = en_cours + verification
+  var waitingAmount = waitingMissions.reduce(function(s, m) {
+    var price = Number(m.negotiated_price || m.budget || 0);
+    return s + Math.round((price - price * 0.02) * 100) / 100;
+  }, 0);
+
+  // Pending = en_cours + verification + waiting (3-day delay)
   var pendingMissions = missions.filter(function(m) { return ["en_cours", "verification"].indexOf(m.status) !== -1; });
   var pendingAmount = pendingMissions.reduce(function(s, m) {
     var price = Number(m.negotiated_price || m.budget || 0);
     return s + Math.round((price - price * 0.02) * 100) / 100;
-  }, 0);
+  }, 0) + waitingAmount;
 
   if (kpiAvailable) kpiAvailable.textContent = availableAmount.toFixed(2) + " €";
   if (kpiPending) kpiPending.textContent = pendingAmount.toFixed(2) + " €";
@@ -308,12 +327,14 @@ async function loadEarnings() {
 
   // List missions with payout actions
   if (payoutMissionsList) {
-    if (availableMissions.length === 0 && pendingMissions.length === 0) {
+    if (availableMissions.length === 0 && waitingMissions.length === 0 && pendingMissions.length === 0) {
       payoutMissionsList.innerHTML = '<div class="hint">Aucune mission avec gains pour le moment.</div>';
       return;
     }
 
     var html = "";
+
+    // Ready for payout (3 days passed)
     availableMissions.forEach(function(m) {
       var price = Number(m.negotiated_price || m.budget || 0);
       var net = Math.round((price - price * 0.02) * 100) / 100;
@@ -323,6 +344,22 @@ async function loadEarnings() {
         + '</div>';
     });
 
+    // Waiting for 3-day delay (confirmed but not yet available)
+    waitingMissions.forEach(function(m) {
+      var price = Number(m.negotiated_price || m.budget || 0);
+      var net = Math.round((price - price * 0.02) * 100) / 100;
+      var completedAt = m.completed_at ? new Date(m.completed_at).getTime() : now;
+      var availableAt = completedAt + PAYOUT_DELAY_MS;
+      var remainMs = availableAt - now;
+      var remainDays = Math.ceil(remainMs / (24 * 60 * 60 * 1000));
+      var remainLabel = remainDays > 1 ? remainDays + " jours" : remainDays === 1 ? "1 jour" : "Quelques heures";
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.2);background:rgba(251,191,36,.05);font-size:13px">'
+        + '<div><span style="font-weight:700">' + (m.title || "Mission") + '</span><br><span class="hint">' + net.toFixed(2) + ' € net — Disponible dans ~' + remainLabel + '</span></div>'
+        + '<span class="pill yellow">Confirmé &#x2705; En attente</span>'
+        + '</div>';
+    });
+
+    // In progress / verification
     pendingMissions.forEach(function(m) {
       var price = Number(m.negotiated_price || m.budget || 0);
       var net = Math.round((price - price * 0.02) * 100) / 100;
@@ -333,7 +370,7 @@ async function loadEarnings() {
         + '</div>';
     });
 
-    // Show already paid missions
+    // Already paid out
     var paidMissions = missions.filter(function(m) { return paidRequestIds.indexOf(m.id) !== -1; });
     paidMissions.forEach(function(m) {
       var payout = payouts.find(function(p) { return p.request_id === m.id; });

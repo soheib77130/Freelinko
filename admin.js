@@ -174,7 +174,8 @@ async function validateMission(requestId) {
   if (!ok) return;
 
   var result = await sb.from("requests").update({
-    status: "termine"
+    status: "termine",
+    completed_at: new Date().toISOString()
   }).eq("id", requestId).eq("status", "verification");
 
   if (result.error) {
